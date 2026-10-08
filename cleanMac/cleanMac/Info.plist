@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppBundlesUsageDescription</key>
+	<string>需要读取已安装应用的信息，以识别已卸载应用的残留文件夹。</string>
+	<key>NSAppDataUsageDescription</key>
+	<string>需要读取浏览器缓存和已卸载应用留下的数据目录。</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>需要通过 Finder 显示所选文件及其简介。</string>
+</dict>
+</plist>

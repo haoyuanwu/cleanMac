@@ -1,0 +1,79 @@
+import Foundation
+import SwiftUI
+
+/// 清理类别定义
+enum ScanCategory: String, CaseIterable, Identifiable {
+    case systemCache = "系统缓存"
+    case logFiles = "日志文件"
+    case browserCache = "浏览器缓存"
+    case trash = "清空废纸篓"
+    case appLeftover = "应用残留"
+    case downloads = "下载文件夹"
+    case largeFiles = "大文件"
+    case applications = "应用程序"
+    case installers = "安装包"
+    
+    var id: String { rawValue }
+
+    var itemUnit: String {
+        if self == .systemCache { return "项目" }
+        return self == .browserCache || self == .appLeftover || self == .logFiles ? "文件夹" : "文件"
+    }
+    
+    var icon: String {
+        switch self {
+        case .systemCache: return "internaldrive.fill"
+        case .logFiles: return "doc.appended"
+        case .browserCache: return "globe.desk"
+        case .trash: return "trash.slash.fill"
+        case .appLeftover: return "square.stack.3d.up.badge.automatic"
+        case .downloads: return "arrow.down.circle.fill"
+        case .largeFiles: return "arrow.up.arrow.down.circle.fill"
+        case .applications: return "app.fill"
+        case .installers: return "shippingbox.and.arrow.backward.fill"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .systemCache: return .blue
+        case .logFiles: return .orange
+        case .browserCache: return .purple
+        case .trash: return .red
+        case .appLeftover: return .pink
+        case .downloads: return .green
+        case .largeFiles: return .cyan
+        case .applications: return .indigo
+        case .installers: return .brown
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .systemCache: return "清理系统和应用产生的缓存文件及文件夹"
+        case .logFiles: return "清理系统和应用日志文件夹"
+        case .browserCache: return "查找 Safari、Chrome、Firefox 等浏览器的缓存文件夹"
+        case .trash: return "清空废纸篓中所有文件"
+        case .appLeftover: return "查找已卸载应用留下的数据文件夹"
+        case .downloads: return "清理下载文件夹中的文件"
+        case .largeFiles: return "扫描磁盘上占用大量空间的文件"
+        case .applications: return "管理已安装的应用程序"
+        case .installers: return "清理 .pkg 和 .dmg 安装包文件"
+        }
+    }
+    
+    /// 该类别是否需要管理员权限
+    var requiresPrivileges: Bool {
+        switch self {
+        case .systemCache: return true
+        case .logFiles: return true
+        case .trash: return false
+        case .browserCache: return false
+        case .appLeftover: return false
+        case .downloads: return false
+        case .largeFiles: return false
+        case .applications: return false
+        case .installers: return false
+        }
+    }
+}
