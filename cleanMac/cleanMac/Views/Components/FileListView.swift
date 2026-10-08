@@ -48,23 +48,28 @@ struct FileListView: View {
     }
     
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
+        let maxSize = files.map(\.size).max() ?? 0
+
+        return ScrollView {
+            LazyVStack(spacing: 6) {
                 ForEach(files) { file in
                     FileCardRow(
                         file: file,
                         isSelected: selectedFiles.contains(file.id),
                         isHovered: hoveredFileID == file.id,
+                        sizeRatio: maxSize > 0 ? Double(file.size) / Double(maxSize) : 0,
                         onToggleSelection: {
-                            toggleSelection(for: file)
+                            withAnimation(Theme.springSnappy) {
+                                toggleSelection(for: file)
+                            }
                         },
                         onSelect: {
-                            if NSEvent.modifierFlags.contains(.shift) {
-                                // Shift+点击：选择范围
-                                selectRange(to: file)
-                            } else {
-                                // 整行点击与复选框一致：切换当前项，保留其他选择。
-                                toggleSelection(for: file)
+                            withAnimation(Theme.springSnappy) {
+                                if NSEvent.modifierFlags.contains(.shift) {
+                                    selectRange(to: file)
+                                } else {
+                                    toggleSelection(for: file)
+                                }
                             }
                         },
                         onOpen: { onOpen(file) },
@@ -76,14 +81,16 @@ struct FileListView: View {
                         contextMenuContent(for: file)
                     }
                     .onHover { isHovered in
-                        hoveredFileID = isHovered ? file.id : nil
+                        withAnimation(Theme.ease) {
+                            hoveredFileID = isHovered ? file.id : nil
+                        }
                     }
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
         }
-        .background(Color(.windowBackgroundColor))
+        .background(Theme.canvas)
     }
 
     private func toggleSelection(for file: FileItem) {
@@ -145,6 +152,16 @@ struct FileListView: View {
         } label: {
             Label(count > 1 ? "复制全部文件名" : "复制文件名", systemImage: "character.textbox")
         }
+
+        if count > 1 {
+            Button {
+                for t in targets {
+                    UserWhitelist.add(t.path)
+                }
+            } label: {
+                Label("批量加入白名单", systemImage: "shield.lefthalf.filled")
+            }
+        }
         
         // 显示简介（单选）
         if count == 1 {
@@ -153,7 +170,25 @@ struct FileListView: View {
                 Label("显示简介", systemImage: "info.circle")
             }
         }
-        
+
+        // 白名单
+        Divider()
+        if UserWhitelist.isWhitelisted(file.path) {
+            Button {
+                UserWhitelist.remove(file.path)
+            } label: {
+                Label("移出白名单", systemImage: "shield.slash")
+            }
+            .help("移出白名单后允许清理")
+        } else {
+            Button {
+                UserWhitelist.add(file.path)
+            } label: {
+                Label(count > 1 ? "将所选加入白名单" : "加入白名单", systemImage: "shield")
+            }
+            .help("加入白名单后永不清理")
+        }
+
         // 删除
         Divider()
         Button(role: .destructive) {
@@ -192,6 +227,8 @@ struct FileCardRow: View {
     let file: FileItem
     let isSelected: Bool
     let isHovered: Bool
+    /// 相对当前列表最大文件的体量 0...1
+    var sizeRatio: Double = 1
     let onToggleSelection: () -> Void
     let onSelect: () -> Void
     let onOpen: () -> Void
@@ -200,14 +237,28 @@ struct FileCardRow: View {
     let onDelete: () -> Void
 
     private var showsActions: Bool { isHovered || isSelected }
-    
+
+    /// 定宽格式，避免日期/时间参差
+    private var dateText: String {
+        guard let date = file.modificationDate else { return "时间未知" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
+            // 左侧选中指示条
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isSelected ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
+                .frame(width: 3, height: 28)
+                .animation(Theme.spring, value: isSelected)
+
             Button(action: onToggleSelection) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 16))
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-                    .frame(width: 20, height: 30)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.85))
+                    .frame(width: 28, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -215,36 +266,44 @@ struct FileCardRow: View {
             .accessibilityLabel(isSelected ? "取消选择 \(file.name)" : "选择 \(file.name)")
 
             HStack(spacing: 14) {
-                // 文件图标
                 if let appIcon = file.appIcon {
-                    // 应用程序图标
                     Image(nsImage: appIcon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 36, height: 36)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else {
-                    // 系统图标
                     Image(systemName: file.isDirectory ? "folder.fill" : "doc.text.fill")
-                        .font(.system(size: 20))
+                        .font(.system(size: 22))
                         .foregroundColor(file.isDirectory ? .blue : .secondary)
-                        .frame(width: 36, height: 36)
-                        .background(file.isDirectory ? Color.blue.opacity(0.1) : Color.secondary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(file.isDirectory ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.12))
+                        )
                 }
-            
-                // 文件信息
-                VStack(alignment: .leading, spacing: 4) {
+
+                // 左侧信息：名称 + 日期 / 体量条（条左对齐）
+                VStack(alignment: .leading, spacing: 8) {
                     Text(file.name)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(file.path)
-                
-                    Text(file.modificationDate?.formatted(date: .abbreviated, time: .shortened) ?? "时间未知")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary.opacity(0.75))
+
+                    ProportionBar(
+                        progress: sizeRatio,
+                        gradient: sizeGradient,
+                        height: 4
+                    )
+                    .frame(maxWidth: 160, alignment: .leading)
+                    .help("相对本列表最大文件的体量")
+
+                    Text(dateText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
+                        .monospacedDigit()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -253,48 +312,66 @@ struct FileCardRow: View {
             .onTapGesture(count: 2, perform: onOpen)
             .onTapGesture(count: 1, perform: onSelect)
 
-            HStack(spacing: 0) {
+            // 右侧：定宽列，保证整列对齐
+            HStack(spacing: 8) {
                 Text(file.sizeFormatted)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundColor(isSelected ? .accentColor : .primary)
+                    .monospacedDigit()
                     .lineLimit(1)
-                    .frame(width: 78, alignment: .trailing)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2, perform: onOpen)
-                    .onTapGesture(count: 1, perform: onSelect)
+                    .frame(width: 92, alignment: .trailing)
 
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     IconOnlyButton(systemImage: "folder", help: "在 Finder 中显示", action: onReveal)
                     IconOnlyButton(systemImage: "trash", help: deleteTitle, role: .destructive, action: onDelete)
                 }
-                .padding(.leading, showsActions ? 8 : 0)
-                .frame(width: showsActions ? 68 : 0, alignment: .trailing)
+                .padding(.leading, showsActions ? 4 : 0)
+                .frame(width: showsActions ? 88 : 0, alignment: .trailing)
                 .opacity(showsActions ? 1 : 0)
                 .clipped()
                 .allowsHitTesting(showsActions)
             }
-            .animation(.easeInOut(duration: 0.18), value: showsActions)
+            .animation(Theme.spring, value: showsActions)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(rowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.055))
-                .frame(height: 1)
-                .padding(.leading, 84)
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(rowBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.04), lineWidth: 1)
+        )
+        .scaleEffect(isHovered ? 1.008 : 1)
+        .animation(Theme.spring, value: isHovered)
+        .animation(Theme.spring, value: isSelected)
+        .animation(Theme.easeSlow, value: sizeRatio)
     }
-    
-    private var rowBackground: some ShapeStyle {
+
+    private var sizeGradient: LinearGradient {
+        // 大文件更偏暖色强调
+        if sizeRatio >= 0.66 {
+            return Theme.warmGradient
+        }
+        if sizeRatio >= 0.33 {
+            return Theme.accentGradient
+        }
+        return LinearGradient(
+            colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.35)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var rowBackground: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.09)
+            return Color.accentColor.opacity(0.11)
         }
         if isHovered {
-            return Color.primary.opacity(0.035)
+            return Theme.surfaceRaised
         }
-        return Color.clear
+        return Color.primary.opacity(0.025)
     }
 }
 
@@ -304,12 +381,12 @@ private struct IconOnlyButton: View {
     var role: ButtonRole?
     let action: () -> Void
     @State private var isHovered = false
-    
+
     var body: some View {
         Button(role: role, action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 26, height: 26)
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
         }
         .buttonStyle(ActionIconButtonStyle(isHovered: isHovered, isDestructive: role == .destructive))
@@ -327,13 +404,13 @@ private struct ActionIconButtonStyle: ButtonStyle {
         configuration.label
             .foregroundColor(isDestructive ? .red : (isHovered ? .primary : .secondary))
             .background(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isDestructive && (isHovered || configuration.isPressed)
                           ? Color.red.opacity(configuration.isPressed ? 0.22 : 0.12)
-                          : Color.primary.opacity(configuration.isPressed ? 0.18 : (isHovered ? 0.11 : 0.045)))
+                          : Color.primary.opacity(configuration.isPressed ? 0.16 : (isHovered ? 0.10 : 0.05)))
             )
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(Theme.springSnappy, value: isHovered)
+            .animation(Theme.springSnappy, value: configuration.isPressed)
     }
 }

@@ -1,378 +1,412 @@
 import SwiftUI
 
-/// 概览仪表盘 - 系统信息 + 存储信息 + 开始扫描
+/// 概览页：大圆环主交互（存储 / 进度 / 可清理构成）+ 精简存储信息
 struct DashboardView: View {
     @ObservedObject var viewModel: MainViewModel
-    
+    @State private var appearProgress: CGFloat = 0
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                // 扫描按钮（融合进度）
-                scanButtonCard
-                
-                // 系统信息卡片
-                systemInfoCard
-                
-                // 存储信息卡片
-                storageCard
-                
-                // 扫描结果概览（扫描后显示）
+            VStack(spacing: 0) {
+                // 上：关键指标横排
+                topMetrics
+                    .padding(.bottom, 8)
+
+                // 中：圆环居中
+                ringStage
+                    .padding(.vertical, 8)
+
+                // 下：智能清理 + 构成
+                bottomPanel
+                    .padding(.top, 8)
+
                 if viewModel.hasScanned {
-                    scanResultsOverview
+                    treemapSection
+                        .padding(.top, 8)
                 }
-            }
-            .padding(24)
-        }
-    }
-    
-    // MARK: - 系统信息卡片
-    private var systemInfoCard: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Image(systemName: "desktopcomputer")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                    Text("系统信息")
-                        .font(.headline)
-                    Spacer()
-                    if viewModel.isLoadingSystemInfo {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                }
-                
-                if let info = viewModel.systemInfo {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 12) {
-                        InfoRow(icon: "laptopcomputer", label: "机型", value: info.model)
-                        InfoRow(icon: "cpu", label: "芯片", value: info.chip)
-                        InfoRow(icon: "memorychip", label: "内存", value: info.memory)
-                        InfoRow(icon: "core.mediaprocessor", label: "CPU 核心", value: "\(info.cpuCores) 核")
-                        InfoRow(icon: "gearshape.2", label: "macOS", value: "\(info.macOSVersion) (\(info.buildNumber))")
-                        InfoRow(icon: "clock", label: "运行时间", value: info.uptime)
-                        InfoRow(icon: "desktopcomputer", label: "主机名", value: info.hostname)
-                        InfoRow(icon: "barcode", label: "序列号", value: info.serialNumber)
-                    }
-                } else {
-                    HStack {
-                        Spacer()
-                        Text("正在获取系统信息...")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    .padding(.vertical, 20)
-                }
-            }
-        }
-    }
-    
-    // MARK: - 存储信息卡片
-    private var storageCard: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Image(systemName: "internaldrive.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                    Text("存储空间")
-                        .font(.headline)
-                    Spacer()
-                    if let storage = viewModel.storageInfo {
-                        Text(storage.volumeName)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                if let storage = viewModel.storageInfo {
-                    // 使用/总量大数字
-                    HStack(alignment: .bottom, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("已使用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(storage.usedFormatted)
-                                .font(.system(size: 32, weight: .bold, design: .rounded))
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("可用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(storage.freeFormatted)
-                                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("总容量")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(storage.totalFormatted)
-                                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        // 圆形使用率
-                        ZStack {
-                            Circle()
-                                .stroke(Color.gray.opacity(0.15), lineWidth: 10)
-                            Circle()
-                                .trim(from: 0, to: storage.usedPercentage)
-                                .stroke(
-                                    storage.usedPercentage > 0.9 ? Color.red :
-                                    storage.usedPercentage > 0.75 ? Color.orange : Color.accentColor,
-                                    style: StrokeStyle(lineWidth: 10, lineCap: .round)
-                                )
-                                .rotationEffect(.degrees(-90))
-                            Text("\(Int(storage.usedPercentage * 100))%")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                        }
-                        .frame(width: 60, height: 60)
-                    }
-                    
-                    // 整条表示总容量，彩色部分表示已用空间
-                    GeometryReader { geo in
-                        let breakdown = viewModel.storageBreakdown.filter { $0.size > 0 }
-                        let total = max(storage.totalBytes, 1)
-                        
-                        HStack(spacing: 0) {
-                            if breakdown.isEmpty {
-                                Rectangle()
-                                    .fill(Color.accentColor.opacity(0.35))
-                                    .frame(width: geo.size.width * storage.usedPercentage)
-                            }
-                            ForEach(breakdown) { cat in
-                                let width = geo.size.width * CGFloat(Double(cat.size) / Double(total))
-                                if width > 0 {
-                                    Rectangle()
-                                        .fill(cat.color)
-                                        .frame(width: width)
-                                }
-                            }
-                            Rectangle()
-                                .fill(Color.primary.opacity(0.1))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .frame(width: geo.size.width, alignment: .leading)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                    .frame(height: 10)
-                    
-                    // 分类图例
-                    if !viewModel.storageBreakdown.isEmpty {
-                        Text("空间分类为估算值")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
 
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 8),
-                            GridItem(.flexible(), spacing: 8)
-                        ], spacing: 8) {
-                            ForEach(viewModel.storageBreakdown) { cat in
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(cat.color)
-                                        .frame(width: 8, height: 8)
-                                    Text(cat.name)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Text(cat.sizeFormatted)
-                                        .font(.caption2)
-                                        .fontWeight(.medium)
-                                        .monospacedDigit()
-                                }
-                            }
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(Color.primary.opacity(0.1))
-                                    .frame(width: 8, height: 8)
-                                Text("可用空间")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text(storage.freeFormatted)
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                                    .monospacedDigit()
-                            }
-                        }
-                    }
-                } else {
-                    HStack {
-                        Spacer()
-                        Text("正在获取存储信息...")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    .padding(.vertical, 20)
-                }
-            }
-        }
-    }
-    
-    // MARK: - 扫描结果概览
-    private var scanResultsOverview: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                    Text("扫描结果")
-                        .font(.headline)
-                    Spacer()
-                    StatItem(title: "文件数", value: "\(viewModel.totalFileCount)")
-                    StatItem(title: "可清理", value: viewModel.totalCleanableSizeFormatted, color: .orange)
-                        .padding(.leading, 16)
-                }
-                
-                // 类别结果列表
-                VStack(spacing: 8) {
-                    ForEach(ScanCategory.allCases) { category in
-                        if let result = viewModel.scanResults[category] {
-                            ScanResultRow(category: category, result: result) {
-                                viewModel.selectedCategory = category
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // MARK: - 扫描按钮卡片（融合进度）
-    private var scanButtonCard: some View {
-        CardView {
-            VStack(spacing: 16) {
-                // 扫描状态信息
                 if viewModel.isScanning {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("正在扫描...")
-                                .font(.headline)
-                            Text("已完成 \(Int(viewModel.overallProgress * 100))%")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        ProgressView()
-                            .scaleEffect(1.2)
+                    segmentedProgress
+                        .frame(maxWidth: 480)
+                        .padding(.top, 20)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 16)
+            .padding(.bottom, 40)
+            .frame(maxWidth: 920)
+            .frame(maxWidth: .infinity)
+            .opacity(appearProgress)
+            .offset(y: (1 - appearProgress) * 10)
+        }
+        .onAppear {
+            withAnimation(Theme.easeSlow) { appearProgress = 1 }
+        }
+    }
+
+    // MARK: - 上：指标横排
+    private var topMetrics: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text("存储空间")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.accentGradient)
+                    .textCase(.uppercase)
+                    .kerning(0.5)
+                if let storage = viewModel.storageInfo {
+                    Text(storage.volumeName)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.primary.opacity(0.06)))
+                }
+                Spacer()
+            }
+
+            if let storage = viewModel.storageInfo {
+                HStack(spacing: 12) {
+                    MetricTile(
+                        title: "已使用",
+                        value: storage.usedFormatted,
+                        subtitle: "占用 \(Int(storage.usedPercentage * 100))%",
+                        gradient: Theme.accentGradient,
+                        compact: true
+                    )
+                    MetricTile(
+                        title: "可用",
+                        value: storage.freeFormatted,
+                        subtitle: "总容量 \(storage.totalFormatted)",
+                        gradient: Theme.successGradient,
+                        compact: true
+                    )
+                    if viewModel.hasScanned {
+                        MetricTile(
+                            title: "预计可释放",
+                            value: viewModel.totalCleanableSizeFormatted,
+                            subtitle: "占已用 \(cleanableShareText) · \(viewModel.totalFileCount) 项",
+                            gradient: Theme.warmGradient,
+                            compact: true
+                        )
+                        .id(viewModel.totalCleanableSize)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .animation(Theme.easeSlow, value: viewModel.totalCleanableSize)
                     }
-                    
-                    // 进度条
-                    ProgressView(value: viewModel.overallProgress)
-                        .progressViewStyle(.linear)
-                        .animation(.easeInOut, value: viewModel.overallProgress)
-                    
-                } else if viewModel.hasScanned {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("扫描完成")
-                                .font(.headline)
-                            Text("发现 \(viewModel.totalFileCount) 个文件，可清理 \(viewModel.totalCleanableSizeFormatted)")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                }
+            } else {
+                ProgressView("读取存储…")
+                    .scaleEffect(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - 中：圆环舞台
+    private var ringStage: some View {
+        VStack(spacing: 12) {
+            ScanHeroControl(
+                phase: scanPhase,
+                storageUsed: viewModel.storageInfo?.usedPercentage ?? 0,
+                storageUsedText: viewModel.storageInfo?.usedFormatted ?? "",
+                storageTotalText: viewModel.storageInfo?.totalFormatted ?? "",
+                segments: ringSegments,
+                cleanableText: viewModel.hasScanned ? viewModel.totalCleanableSizeFormatted : "",
+                isEnabled: !viewModel.isScanning && !viewModel.isCleaning,
+                action: {
+                    Task { await viewModel.scanAll() }
+                },
+                onSegmentTap: { segment in
+                    guard segment.id != "other" else { return }
+                    if let category = ScanCategory.allCases.first(where: { $0.id == segment.id }) {
+                        withAnimation(Theme.spring) {
+                            viewModel.selectedCategory = category
                         }
-                        
-                        Spacer()
-                        
-                        Button {
-                            Task { await viewModel.scanAll() }
-                        } label: {
-                            Label("重新扫描", systemImage: "arrow.clockwise")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(viewModel.isScanning || viewModel.isCleaning)
                     }
-                    
-                } else {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("开始扫描")
-                                .font(.headline)
-                            Text("扫描系统中的缓存、日志、大文件等可清理内容")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                }
+            )
+            .frame(maxWidth: .infinity)
+
+            if viewModel.isScanning {
+                scanningNote
+                    .frame(maxWidth: 360)
+
+                Button("取消扫描") {
+                    viewModel.cancelScanAll()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    // MARK: - 下：智能清理 + 构成图例
+    private var bottomPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(viewModel.hasScanned ? "可清理构成 · 与环上扇区对应" : "空间分布（估算）")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if viewModel.hasScanned {
+                    smartCleanButton
+                }
+            }
+
+            if viewModel.hasScanned {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ], spacing: 10) {
+                    ForEach(ringSegments) { segment in
+                        legendCard(
+                            color: segment.color,
+                            name: segment.name,
+                            value: segment.detail,
+                            percent: segment.percentText
+                        ) {
+                            guard segment.id != "other" else { return }
+                            if let category = ScanCategory.allCases.first(where: { $0.id == segment.id }) {
+                                withAnimation(Theme.spring) {
+                                    viewModel.selectedCategory = category
+                                }
+                            }
                         }
-                        
-                        Spacer()
-                        
-                        Button {
-                            Task { await viewModel.scanAll() }
-                        } label: {
-                            Label("开始扫描", systemImage: "magnifyingglass")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(viewModel.isScanning || viewModel.isCleaning)
+                    }
+                }
+            } else {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ], spacing: 10) {
+                    ForEach(viewModel.storageBreakdown.filter { $0.size > 0 }) { cat in
+                        legendCard(
+                            color: cat.color,
+                            name: cat.name,
+                            value: cat.sizeFormatted,
+                            percent: nil,
+                            action: nil
+                        )
                     }
                 }
             }
         }
     }
-}
 
-// MARK: - 扫描结果行
-struct ScanResultRow: View {
-    let category: ScanCategory
-    let result: ScanResult
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: category.icon)
-                    .font(.body)
-                    .foregroundColor(category.color)
-                    .frame(width: 32, height: 32)
-                    .background(category.color.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                
-                Text(category.rawValue)
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                if result.isScanning {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                } else if result.error != nil {
-                    StatusBadge(text: result.items.isEmpty ? "需要授权" : "部分不可读",
-                                color: .orange, icon: "exclamationmark.triangle.fill")
-                } else if result.isCleaned {
-                    StatusBadge(text: "已清理", color: .green, icon: "checkmark.circle.fill")
-                } else {
-                    Text("\(result.itemCount) 个\(category.itemUnit)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(result.totalSizeFormatted)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(category.color)
-                }
-                
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+    private var smartCleanButton: some View {
+        let plan = viewModel.smartCleanPlan
+        return Button {
+            viewModel.requestSmartClean()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(plan.isEmpty ? "暂无推荐清理" : "智能清理 \(plan.totalSizeFormatted)")
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .background(Color(.controlBackgroundColor).opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .foregroundColor(.white)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(plan.isEmpty ? AnyShapeStyle(Color.secondary.opacity(0.5)) : AnyShapeStyle(Theme.accentGradient))
+            )
         }
         .buttonStyle(.plain)
+        .disabled(plan.isEmpty || viewModel.isScanning || viewModel.isCleaning)
+        .help("仅清理低风险推荐项（缓存/日志等）")
+    }
+
+    // MARK: - Treemap
+    private var treemapSection: some View {
+        let nodes = ringSegments.map {
+            TreemapNode(id: $0.id, name: $0.name, size: Int64(Double(viewModel.totalCleanableSize) * $0.fraction), color: $0.color)
+        }
+        let root = TreemapNode(
+            id: "root",
+            name: "可清理",
+            size: viewModel.totalCleanableSize,
+            color: .accentColor,
+            children: nodes
+        )
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("磁盘占用 · Treemap")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("点按块可进入类别")
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+
+            if nodes.isEmpty {
+                Text("暂无可展示数据")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                TreemapView(root: root) { node in
+                    guard node.id != "other" else { return }
+                    if let category = ScanCategory.allCases.first(where: { $0.id == node.id }) {
+                        withAnimation(Theme.spring) {
+                            viewModel.selectedCategory = category
+                        }
+                    }
+                }
+                .frame(height: 220)
+            }
+        }
+    }
+
+    private func legendCard(
+        color: Color,
+        name: String,
+        value: String,
+        percent: String?,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        let content = HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(color)
+                .frame(width: 8, height: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(percent ?? "")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(color)
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.surfaceRaised)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                )
+        )
+
+        if let action {
+            return AnyView(
+                Button(action: action) { content }
+                    .buttonStyle(.plain)
+            )
+        }
+        return AnyView(content)
+    }
+
+    private var ringSegments: [ScanHeroControl.Segment] {
+        let results = ScanCategory.allCases.compactMap { category -> (ScanCategory, ScanResult)? in
+            guard let result = viewModel.scanResults[category], result.totalSize > 0, !result.isCleaned else {
+                return nil
+            }
+            return (category, result)
+        }
+        let total = results.reduce(Int64(0)) { $0 + $1.1.totalSize }
+        guard total > 0 else { return [] }
+
+        // 小扇区合并为「其他」，避免环上点不中
+        let minRatio = 0.03
+        var mains: [(ScanCategory, ScanResult, Double)] = []
+        var otherSize: Int64 = 0
+        var otherCount = 0
+
+        for (category, result) in results {
+            let ratio = Double(result.totalSize) / Double(total)
+            if ratio >= minRatio {
+                mains.append((category, result, ratio))
+            } else {
+                otherSize += result.totalSize
+                otherCount += 1
+            }
+        }
+
+        var segments = mains.map { category, result, ratio in
+            ScanHeroControl.Segment(
+                id: category.id,
+                name: category.rawValue,
+                color: category.color,
+                fraction: ratio,
+                detail: result.totalSizeFormatted,
+                iconAsset: category.iconAsset,
+                usesAssetIcon: true
+            )
+        }
+
+        if otherSize > 0 {
+            segments.append(
+                ScanHeroControl.Segment(
+                    id: "other",
+                    name: "其他",
+                    color: Color.secondary.opacity(0.55),
+                    fraction: Double(otherSize) / Double(total),
+                    detail: FileSizeFormatter.string(fromByteCount: otherSize),
+                    iconAsset: "square.grid.2x2.fill",
+                    usesAssetIcon: false
+                )
+            )
+        }
+        return segments
+    }
+
+    private var scanPhase: ScanHeroControl.Phase {
+        if viewModel.isScanning {
+            return .scanning(progress: viewModel.overallProgress)
+        }
+        if viewModel.hasScanned {
+            return .finished
+        }
+        return .idle
+    }
+
+    private var cleanableShare: Double {
+        guard let storage = viewModel.storageInfo, storage.usedBytes > 0 else { return 0 }
+        return Double(viewModel.totalCleanableSize) / Double(storage.usedBytes)
+    }
+
+    private var cleanableShareText: String {
+        String(format: "%.1f%%", cleanableShare * 100)
+    }
+
+    private var scanningNote: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.6)
+            Text("全局扫描进行中，暂不可再次扫描")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+
+    private var segmentedProgress: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(ScanCategory.allCases.enumerated()), id: \.element) { index, category in
+                let threshold = Double(index + 1) / Double(ScanCategory.allCases.count)
+                Capsule()
+                    .fill(viewModel.overallProgress >= threshold
+                          ? category.color
+                          : Color.primary.opacity(0.08))
+                    .frame(height: 5)
+                    .animation(Theme.ease, value: viewModel.overallProgress)
+            }
+        }
     }
 }

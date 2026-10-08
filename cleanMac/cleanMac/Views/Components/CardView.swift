@@ -1,21 +1,43 @@
 import SwiftUI
 
-/// 通用卡片视图组件
+/// 通用卡片：产品仪表盘抬升面板
 struct CardView<Content: View>: View {
+    var padding: CGFloat = 22
     let content: () -> Content
-    
-    init(@ViewBuilder content: @escaping () -> Content) {
+
+    init(padding: CGFloat = 22, @ViewBuilder content: @escaping () -> Content) {
+        self.padding = padding
         self.content = content
     }
-    
+
     var body: some View {
         content()
-            .padding(20)
+            .padding(padding)
             .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Theme.surfaceRaised, Theme.surfaceRaised.opacity(0.92)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.55),
+                                        Color.primary.opacity(0.06)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
             )
+            .cardShadow()
     }
 }
 

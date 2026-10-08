@@ -20,17 +20,18 @@ enum ScanCategory: String, CaseIterable, Identifiable {
         return self == .browserCache || self == .appLeftover || self == .logFiles ? "文件夹" : "文件"
     }
     
-    var icon: String {
+    /// 与侧边栏、概览和类别详情共用的 Iconfont 资源。
+    var iconAsset: String {
         switch self {
-        case .systemCache: return "internaldrive.fill"
-        case .logFiles: return "doc.appended"
-        case .browserCache: return "globe.desk"
-        case .trash: return "trash.slash.fill"
-        case .appLeftover: return "square.stack.3d.up.badge.automatic"
-        case .downloads: return "arrow.down.circle.fill"
-        case .largeFiles: return "arrow.up.arrow.down.circle.fill"
-        case .applications: return "app.fill"
-        case .installers: return "shippingbox.and.arrow.backward.fill"
+        case .systemCache: return "SidebarSystemCache"
+        case .logFiles: return "SidebarLogs"
+        case .browserCache: return "SidebarBrowserCache"
+        case .trash: return "SidebarTrash"
+        case .appLeftover: return "SidebarAppLeftover"
+        case .downloads: return "SidebarDownloads"
+        case .largeFiles: return "SidebarLargeFiles"
+        case .applications: return "SidebarApplications"
+        case .installers: return "SidebarInstallers"
         }
     }
     

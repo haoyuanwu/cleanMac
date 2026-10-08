@@ -9,30 +9,39 @@ struct EmptyTrashOutcome: Sendable {
 class CleanService {
     private let fileManager = FileManager.default
     
-    /// 清理指定文件列表
+    /// 清理指定文件列表（删除前 dry-run 二次校验）
     func clean(items: [FileItem], category: ScanCategory) async throws -> Int64 {
         var totalCleaned: Int64 = 0
-        
-        for item in items {
+        let validated = DeleteDryRun.validate(items: items, context: "clean-\(category.rawValue)")
+
+        for item in validated.allowed {
             do {
-                // 系统缓存和日志需要管理员权限
                 if category.requiresPrivileges && (item.path.hasPrefix("/Library") || item.path.hasPrefix("/System")) {
                     try cleanWithPrivileges(path: item.path)
                 } else {
                     try fileManager.removeItem(atPath: item.path)
                 }
                 totalCleaned += item.size
+                AppLog.info("cleaned", metadata: ["path": item.path, "size": "\(item.size)"])
             } catch {
-                // 单个文件删除失败不影响整体
-                print("Failed to clean \(item.path): \(error)")
+                AppLog.error("clean failed", metadata: ["path": item.path, "error": error.localizedDescription])
             }
         }
-        
+
+        for (item, reason) in validated.blocked {
+            AppLog.warn("clean skipped", metadata: ["path": item.path, "reason": reason])
+        }
+
         return totalCleaned
     }
     
     /// 清理单个文件
     func cleanSingle(item: FileItem, requiresPrivileges: Bool = false) throws {
+        let decision = DeleteDryRun.validate(path: item.path, context: "cleanSingle")
+        guard decision.allowed else {
+            AppLog.warn("cleanSingle blocked", metadata: ["path": item.path, "reason": decision.reason])
+            return
+        }
         if requiresPrivileges {
             try cleanWithPrivileges(path: item.path)
         } else {

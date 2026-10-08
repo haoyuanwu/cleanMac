@@ -6,7 +6,9 @@ struct cleanMacApp: App {
         WindowGroup {
             ContentView()
         }
-        
+        .windowToolbarStyle(.unifiedCompact)
+        .windowStyle(.hiddenTitleBar)
+
         // 菜单栏命令
         .commands {
             CommandGroup(after: .newItem) {

@@ -8,16 +8,18 @@ struct CategoryDetailView: View {
     
     @State private var sortBy: SortOption = .size
     @State private var searchText = ""
+    @State private var ageFilter: FileAgeBucket?
     @State private var isSearchExpanded = false
     @State private var selectedFiles = Set<FileItem.ID>()
     @State private var showingEmptyTrashConfirmation = false
+    @State private var appearProgress: CGFloat = 0
     @FocusState private var isSearchFocused: Bool
     
     enum SortOption: String, CaseIterable {
         case size = "按大小"
         case date = "按日期"
         case name = "按名称"
-        
+
         var icon: String {
             switch self {
             case .size: return "arrow.down.to.line.compact"
@@ -25,6 +27,7 @@ struct CategoryDetailView: View {
             case .name: return "textformat"
             }
         }
+
     }
     
     private var result: ScanResult? {
@@ -41,7 +44,11 @@ struct CategoryDetailView: View {
         guard let items = result?.items else { return [] }
         
         var filtered = items
-        
+
+        if let ageFilter {
+            filtered = filtered.filter { FileAgeBucket.bucket(for: $0.modificationDate) == ageFilter }
+        }
+
         let keywords = normalizedSearchText(searchText)
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
@@ -114,7 +121,7 @@ struct CategoryDetailView: View {
                 preScanView
             }
         }
-        .navigationTitle(category.rawValue)
+        .navigationTitle("")
         .onChange(of: result?.items.map(\.id) ?? []) { availableIDs in
             selectedFiles.formIntersection(availableIDs)
         }
@@ -128,63 +135,82 @@ struct CategoryDetailView: View {
         }
     }
     
-    // MARK: - 顶部信息栏
+    // MARK: - 顶部信息区（左：标题+指标 / 右：操作）
     private var headerBar: some View {
-        HStack(spacing: 20) {
-            HStack(spacing: 14) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 18, weight: .semibold))
+        HStack(alignment: .center, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(category.iconAsset)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
                     .foregroundColor(category.color)
+                    .frame(width: 18, height: 18)
                     .frame(width: 36, height: 36)
-                    .background(category.color.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(category.rawValue)
-                        .font(.system(size: 16, weight: .semibold))
-                    Text(category.description)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Spacer()
-            
-            if let result = result, !result.items.isEmpty {
-                HStack(spacing: 18) {
-                    MetricPill(title: "总大小", value: result.totalSizeFormatted, color: .orange)
-                    MetricPill(title: "\(category.itemUnit)数", value: "\(result.itemCount)")
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(category.color.opacity(0.12))
+                    )
+                    .accessibilityHidden(true)
 
+                Text(category.rawValue)
+                    .font(.system(size: 16, weight: .semibold))
+            }
+
+            if let result = result, !result.items.isEmpty {
+                MetricPill(title: "总大小", value: result.totalSizeFormatted, color: .orange)
+                MetricPill(title: "\(category.itemUnit)数", value: "\(result.itemCount)")
+            }
+
+            Spacer(minLength: 12)
+
+            if let result = result, !result.items.isEmpty {
+                HStack(spacing: 10) {
                     if category == .trash {
-                        Button(role: .destructive) {
+                        DetailTextButton(
+                            title: "清空废纸篓",
+                            systemImage: "trash.slash",
+                            role: .destructive
+                        ) {
                             showingEmptyTrashConfirmation = true
-                        } label: {
-                            Label("清空废纸篓", systemImage: "trash.slash")
                         }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
                         .disabled(result.error != nil)
                         .help(result.error == nil ? "永久删除废纸篓中的所有项目" : "部分废纸篓无法读取，请先授予权限")
                     }
-                    
-                    Button {
+
+                    DetailTextButton(
+                        title: "重新扫描",
+                        systemImage: "arrow.clockwise"
+                    ) {
                         Task { await viewModel.scanCategory(category) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 30, height: 30)
                     }
-                    .buttonStyle(.plain)
-                    .background(Color.primary.opacity(0.055))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .help("重新扫描")
-                    .disabled(viewModel.isScanning)
+                    .disabled(result.isScanning)
                 }
+            } else if result?.isScanning == true {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("扫描中…")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            } else if result != nil {
+                DetailTextButton(
+                    title: "重新扫描",
+                    systemImage: "arrow.clockwise"
+                ) {
+                    Task { await viewModel.scanCategory(category) }
+                }
+                .disabled(result?.isScanning == true)
+            } else {
+                Text(category.description)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 14)
-        .background(Color(.windowBackgroundColor))
+        .padding(.vertical, 12)
+        .background(Theme.canvas)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
@@ -192,116 +218,96 @@ struct CategoryDetailView: View {
         }
     }
     
-    // MARK: - 前置页面（未扫描状态）
+    // MARK: - 前置页面（未扫描状态）：居中一体主视觉
     private var preScanView: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            
-            VStack(spacing: 16) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 56))
-                    .foregroundColor(category.color)
-                    .frame(width: 100, height: 100)
-                    .background(category.color.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                
-                Text(category.rawValue)
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text(category.description)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("将扫描以下位置：")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(scanPathsForCategory, id: \.self) { path in
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder.fill")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Text(path)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+
+            VStack(spacing: 22) {
+                // 图标（与标题、按钮同轴）
+                ZStack {
+                    Circle()
+                        .fill(category.color.opacity(0.16))
+                        .frame(width: 132, height: 132)
+                        .blur(radius: 18)
+
+                    Image(category.iconAsset)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundColor(.white)
+                        .frame(width: 48, height: 48)
+                        .frame(width: 100, height: 100)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [category.color, category.color.opacity(0.72)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .elevatedShadow()
+                        .accessibilityHidden(true)
+                }
+                .scaleEffect(0.88 + 0.12 * appearProgress)
+                .opacity(appearProgress)
+
+                VStack(spacing: 10) {
+                    Text(category.rawValue)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .multilineTextAlignment(.center)
+
+                    Text(category.description)
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
+                        .lineSpacing(4)
+                }
+                .opacity(min(1, max(0, (appearProgress - 0.15) / 0.55)))
+                .offset(y: (1 - appearProgress) * 10)
+
+                // 主按钮与标题同轴融合
+                Button {
+                    Task { await viewModel.scanCategory(category) }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkle.magnifyingglass")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("开始扫描")
+                            .font(.system(size: 16, weight: .semibold))
                     }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
                 }
-                .frame(maxHeight: 150)
+                .buttonStyle(GradientButtonStyleCompact())
+                .disabled(result?.isScanning == true)
+                .opacity(min(1, max(0, (appearProgress - 0.35) / 0.5)))
+                .offset(y: (1 - appearProgress) * 12)
+                .scaleEffect(0.96 + 0.04 * appearProgress)
             }
-            .padding(16)
-            .background(Color(.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .frame(maxWidth: 400)
-            
-            Button {
-                Task { await viewModel.scanCategory(category) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.title3)
-                    Text("开始扫描")
-                        .font(.headline)
-                }
-                .frame(width: 200)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(viewModel.isScanning)
-            
-            Spacer()
+            .frame(maxWidth: 520)
+
+            Spacer(minLength: 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    /// 各类别对应的扫描路径
-    private var scanPathsForCategory: [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        switch category {
-        case .systemCache:
-            return ["\(home)/Library/Caches", "/Library/Caches", "/System/Library/Caches"]
-        case .logFiles:
-            return [
-                "\(home)/Library/Logs",
-                "/Library/Logs",
-                "/var/log",
-                "Xcode 日志文件夹",
-                "CoreSimulator 日志文件夹",
-                "~/.android/logs"
-            ]
-        case .browserCache:
-            return ["Safari", "Chrome", "Firefox", "Edge 缓存目录"]
-        case .trash:
-            return ["\(home)/.Trash"]
-        case .appLeftover:
-            return ["\(home)/Library/Application Support", "\(home)/Library/Containers", "\(home)/Library/Saved Application State"]
-        case .downloads:
-            return ["\(home)/Downloads"]
-        case .largeFiles:
-            return ["\(home)/Documents", "\(home)/Desktop", "\(home)/Downloads", "\(home)/Movies", "\(home)/Music", "\(home)/Pictures"]
-        case .applications:
-            return ["/Applications", "\(home)/Applications"]
-        case .installers:
-            return [
-                "\(home)/Downloads",
-                "\(home)/Desktop",
-                "\(home)/Documents",
-                "系统缓存目录"
-            ]
+        .background(Theme.canvas.ignoresSafeArea())
+        .onAppear { startEntranceAnimation() }
+        .onChange(of: category) { _ in
+            appearProgress = 0
+            startEntranceAnimation()
         }
     }
-    
+
+    private func startEntranceAnimation() {
+        appearProgress = 0
+        withAnimation(Theme.easeSlow) {
+            appearProgress = 1
+        }
+    }
+
     // MARK: - 文件列表内容
     private var fileListContent: some View {
         VStack(spacing: 0) {
@@ -315,80 +321,102 @@ struct CategoryDetailView: View {
                     .background(Color.orange.opacity(0.08))
             }
 
+            // 大文件时间线
+            if category == .largeFiles || category == .downloads {
+                timelineBar
+            }
+
+            // 应用卸载增强
+            if category == .applications {
+                leftoverSummaryBar
+            }
+
             // 工具栏
-            HStack(spacing: 10) {
-                // 点击放大镜展开搜索
+            HStack(spacing: 12) {
                 if isSearchExpanded {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
                             .foregroundColor(.secondary)
-                        TextField("模糊搜索文件...", text: $searchText)
+                        TextField("模糊搜索文件…", text: $searchText)
                             .textFieldStyle(.plain)
+                            .font(.system(size: 14))
                             .focused($isSearchFocused)
                             .onAppear { isSearchFocused = true }
                         Button {
                             searchText = ""
                             isSearchFocused = false
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(Theme.spring) {
                                 isSearchExpanded = false
                             }
                         } label: {
-                            Image(systemName: "xmark")
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
                         .help("关闭搜索")
                     }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 10)
-                    .frame(width: 230, height: 30)
-                    .background(Color.primary.opacity(0.055))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .padding(.horizontal, 12)
+                    .frame(width: 260, height: 36)
+                    .background(Theme.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
                 } else {
                     Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(Theme.spring) {
                             isSearchExpanded = true
                         }
                     } label: {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(width: 36, height: 36)
                     }
                     .buttonStyle(.plain)
-                    .background(Color.primary.opacity(0.055))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .background(Theme.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
                     .help("搜索文件")
                     .accessibilityLabel("搜索文件")
                 }
-                
+
                 Text("\(sortedFiles.count) 个\(category.itemUnit)")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 13, design: .rounded))
                     .foregroundColor(.secondary)
-                
+                    .monospacedDigit()
+
                 Button {
-                    let visibleIDs = Set(sortedFiles.map(\.id))
-                    if allVisibleFilesSelected {
-                        selectedFiles.subtract(visibleIDs)
-                    } else {
-                        selectedFiles.formUnion(visibleIDs)
+                    withAnimation(Theme.springSnappy) {
+                        let visibleIDs = Set(sortedFiles.map(\.id))
+                        if allVisibleFilesSelected {
+                            selectedFiles.subtract(visibleIDs)
+                        } else {
+                            selectedFiles.formUnion(visibleIDs)
+                        }
                     }
                 } label: {
                     Label(allVisibleFilesSelected ? "取消全选" : "全选",
                           systemImage: allVisibleFilesSelected ? "checkmark.square.fill" : "checkmark.square")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
+                .keyboardShortcut("a", modifiers: .command)
                 .disabled(sortedFiles.isEmpty)
-                .help(searchText.isEmpty ? "选择列表中的所有文件" : "选择当前搜索结果")
-                
+                .help("选择列表中的所有文件（⌘A）")
+
                 Spacer()
-                
-                // 排序下拉选择
+
                 Menu {
                     ForEach(SortOption.allCases, id: \.self) { option in
                         Button {
-                            sortBy = option
+                            withAnimation(Theme.ease) { sortBy = option }
                         } label: {
                             if sortBy == option {
                                 Label(option.rawValue, systemImage: "checkmark")
@@ -398,28 +426,35 @@ struct CategoryDetailView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Image(systemName: sortBy.icon)
+                            .font(.system(size: 13))
                         Text(sortBy.rawValue)
                             .fixedSize(horizontal: true, vertical: false)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                     }
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color.primary.opacity(0.055))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Theme.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 11)
-            .background(Color(.windowBackgroundColor))
-            
-            Divider()
-            
+            .padding(.vertical, 12)
+            .background(Theme.canvas)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(height: 1)
+
             // 文件列表
             ZStack {
                 FileListView(
@@ -440,87 +475,201 @@ struct CategoryDetailView: View {
                         viewModel.openFile(file)
                     }
                 )
-                
+
                 if sortedFiles.isEmpty {
                     noMatchesView
                 }
-                
+
             }
 
             // 汇总条单独占据底部空间，列表最后一行可完整滚动显示。
             if !selectedFileItems.isEmpty {
                 selectionSummaryBar
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 14)
                     .frame(maxWidth: .infinity)
-                    .background(Color(.windowBackgroundColor))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .background(Theme.canvas.opacity(0.92))
+                    .animation(Theme.spring, value: selectedFileItems.count)
             }
+        }
+        .onDeleteCommand {
+            guard !selectedFileItems.isEmpty else { return }
+            deleteSelectedFiles()
         }
     }
-    
-    // MARK: - 选择汇总悬浮栏
-    private var selectionSummaryBar: some View {
-        HStack(spacing: 10) {
-            Text("已选 \(selectedFileItems.count) 项")
-                .font(.system(size: 12, weight: .semibold))
-            
-            Text(FileSizeFormatter.string(fromByteCount: selectedTotalSize))
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Button {
-                revealSelectedFiles()
-            } label: {
-                Label("在 Finder 中显示", systemImage: "folder")
+
+    // MARK: - 大文件时间线
+    private var timelineBar: some View {
+        let groups = FileTimeline.group(sortedFiles)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("时间线")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("按修改时间分层")
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.8))
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .help("在 Finder 中显示")
-            .accessibilityLabel("在 Finder 中显示所选文件")
-            
-            Button {
-                copySelectedPaths()
-            } label: {
-                Label("复制路径", systemImage: "doc.on.doc")
+
+            HStack(spacing: 8) {
+                ForEach(groups, id: \.bucket) { group in
+                    Button {
+                        withAnimation(Theme.spring) {
+                            if ageFilter == group.bucket {
+                                ageFilter = nil
+                            } else {
+                                ageFilter = group.bucket
+                            }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.bucket.rawValue)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(ageFilter == group.bucket ? .accentColor : .secondary)
+                            Text(FileSizeFormatter.string(fromByteCount: group.totalSize))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                            Text("\(group.items.count) 项")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                            ProportionBar(
+                                progress: sortedFiles.isEmpty ? 0 : Double(group.totalSize) / Double(max(1, sortedFiles.reduce(Int64(0)) { $0 + $1.size })),
+                                gradient: Theme.categoryGradient(bucketColor(group.bucket)),
+                                height: 4
+                            )
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(ageFilter == group.bucket
+                                      ? AnyShapeStyle(Theme.accentGradientSoft)
+                                      : AnyShapeStyle(Theme.surfaceRaised))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .help("复制所选文件的路径")
-            
-            Button(role: .destructive) {
-                deleteSelectedFiles()
-            } label: {
-                Label(category == .applications ? "卸载" : (category == .trash ? "永久删除" : "移到废纸篓"), systemImage: "trash")
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .help(category == .applications ? "将所选应用移到废纸篓" : (category == .trash ? "永久删除所选项目" : "将所选文件移到废纸篓"))
-            
-            Button {
-                selectedFiles.removeAll()
-            } label: {
-                Label("取消选择", systemImage: "xmark")
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .help("取消选择")
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 12)
+        .background(Theme.canvas)
+    }
+
+    private func bucketColor(_ bucket: FileAgeBucket) -> Color {
+        switch bucket {
+        case .last30Days: return .red
+        case .lastYear: return .orange
+        case .older: return .green
+        case .unknown: return .gray
+        }
+    }
+
+    // MARK: - 应用卸载残留摘要
+    private var leftoverSummaryBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "shippingbox.fill")
+                .foregroundColor(.indigo)
+            Text("点按「卸载」将展示残留路径与大小，可勾选一并删除")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer()
+            if selectedFileItems.count == 1, let app = selectedFileItems.first {
+                Button {
+                    Task { viewModel.requestUninstall([app]) }
+                } label: {
+                    Label("查看卸载与残留", systemImage: "shippingbox")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 22)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Theme.surfaceSunk.opacity(0.5))
+    }
+    // MARK: - 选择汇总条（仅删除）
+    private var selectionSummaryBar: some View {
+        HStack(spacing: 14) {
+            // 数量 + 体量
+            HStack(spacing: 10) {
+                Text("\(selectedFileItems.count)")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.accentGradient)
+                    .monospacedDigit()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("已选择")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text(FileSizeFormatter.string(fromByteCount: selectedTotalSize))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                }
+            }
+
+            ProportionBar(
+                progress: max(0, min(1, Double(selectedTotalSize) / Double(max(1, result?.totalSize ?? 1)))),
+                gradient: Theme.warmGradient,
+                height: 5
+            )
+            .frame(maxWidth: 120)
+
+            Spacer(minLength: 8)
+
+            // 仅删除
+            Button(role: .destructive) {
+                withAnimation(Theme.springSnappy) {
+                    deleteSelectedFiles()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: category == .applications ? "trash" : "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(deleteButtonTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .foregroundColor(.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.red.opacity(0.95), Color.red.opacity(0.78)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .shadow(color: Color.red.opacity(0.35), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(1)
+            .accessibilityLabel(deleteButtonTitle)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+        .shadow(color: .black.opacity(0.14), radius: 22, y: 10)
         .frame(maxWidth: 560)
         .padding(.horizontal, 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.96)))
     }
-    
+
+    private var deleteButtonTitle: String {
+        switch category {
+        case .applications: return "卸载所选"
+        case .trash: return "永久删除"
+        default: return "移到废纸篓"
+        }
+    }
+
     // MARK: - 批量删除
     private func deleteSelectedFiles() {
         let items = selectedFileItems
@@ -576,40 +725,168 @@ struct CategoryDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
+    // MARK: - 空结果：已干净
     private var emptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.green)
-            Text("没有可清理的\(category.itemUnit)")
-                .font(.headline)
-            Text("此类别下没有找到需要清理的\(category.itemUnit)")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(spacing: 22) {
+            Spacer(minLength: 24)
+
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.16))
+                    .frame(width: 132, height: 132)
+                    .blur(radius: 18)
+
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundStyle(Theme.successGradient)
+                    .frame(width: 100, height: 100)
+                    .background(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.green.opacity(0.22),
+                                        Color.teal.opacity(0.12)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                    .stroke(Color.green.opacity(0.22), lineWidth: 1)
+                            )
+                    )
+                    .elevatedShadow()
+            }
+            .scaleEffect(0.88 + 0.12 * appearProgress)
+            .opacity(appearProgress)
+
+            VStack(spacing: 10) {
+                Text("没有可清理的\(category.itemUnit)")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+
+                Text("此类别很干净，暂时不需要处理")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            .opacity(min(1, max(0, (appearProgress - 0.15) / 0.55)))
+            .offset(y: (1 - appearProgress) * 10)
 
             Button {
                 Task { await viewModel.scanCategory(category) }
             } label: {
-                Label("重新扫描", systemImage: "arrow.clockwise")
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("重新扫描")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 11)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isScanning)
+            .buttonStyle(GradientButtonStyleCompact())
+            .disabled(result?.isScanning == true)
+            .opacity(min(1, max(0, (appearProgress - 0.35) / 0.5)))
+            .offset(y: (1 - appearProgress) * 12)
+            .scaleEffect(0.96 + 0.04 * appearProgress)
+
+            Spacer(minLength: 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.canvas.ignoresSafeArea())
+        .onAppear { startEntranceAnimation() }
     }
-    
+
     private var noMatchesView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.system(size: 30))
+                .font(.system(size: 36))
                 .foregroundColor(.secondary)
             Text("没有匹配结果")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 16, weight: .semibold))
             Text("换一个关键词试试")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+
+            if !searchText.isEmpty {
+                Button("清除搜索") {
+                    withAnimation(Theme.spring) {
+                        searchText = ""
+                        isSearchExpanded = false
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 详情页文字按钮
+struct DetailTextButton: View {
+    let title: String
+    let systemImage: String
+    var role: ButtonRole?
+    var isDestructive: Bool = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    init(title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.role = role
+        self.isDestructive = role == .destructive
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .medium))
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .foregroundStyle(
+                isDestructive
+                    ? AnyShapeStyle(Color.red)
+                    : AnyShapeStyle(Color.primary)
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isHovered ? 1.02 : 1)
+        .onHover { hovering in
+            withAnimation(Theme.springSnappy) { isHovered = hovering }
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isDestructive {
+            return isHovered ? Color.red.opacity(0.12) : Color.red.opacity(0.06)
+        }
+        return isHovered ? Theme.surfaceRaised : Color.primary.opacity(0.04)
+    }
+
+    private var borderColor: Color {
+        if isDestructive {
+            return Color.red.opacity(0.18)
+        }
+        return Color.primary.opacity(0.08)
     }
 }
 
@@ -617,15 +894,22 @@ private struct MetricPill: View {
     let title: String
     let value: String
     var color: Color = .primary
-    
+
     var body: some View {
-        VStack(alignment: .trailing, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.system(size: 10))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
             Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundColor(color)
+                .monospacedDigit()
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.surfaceRaised)
+        )
     }
 }
