@@ -73,7 +73,7 @@ struct SidebarView: View {
                 }
             }
 
-            Section("开发工具") {
+            Section("审查工具") {
                 SidebarRow(
                     title: "磁盘地图",
                     icon: "SFSymbol:square.grid.3x3.topleft.filled",

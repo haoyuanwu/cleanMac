@@ -82,7 +82,7 @@ struct WhitelistView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("白名单")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("右键文件可加入白名单；这些路径永远不会被清理")
+                Text("在文件列表或磁盘地图中右键加入；这些路径永远不会被清理")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
@@ -192,7 +192,7 @@ struct WhitelistView: View {
 
             Text("暂无白名单")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
-            Text("在文件列表中右键 →「加入白名单」，可保护指定路径不被清理。")
+            Text("在文件列表或磁盘地图中右键 →「加入白名单」，可保护指定路径不被清理。")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

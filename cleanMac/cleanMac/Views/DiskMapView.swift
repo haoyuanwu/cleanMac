@@ -7,8 +7,10 @@ final class DiskMapSession: ObservableObject {
     @Published var root: DiskMapNode?
     @Published var stack: [DiskMapNode] = []
     @Published var isLoading = false
+    @Published private(set) var loadingPaths: Set<String> = []
 
     private var directoryChildren: [String: [DiskMapNode]] = [:]
+    private(set) var generation = 0
 
     func cachedChildren(of path: String) -> [DiskMapNode]? {
         directoryChildren[path]
@@ -16,15 +18,33 @@ final class DiskMapSession: ObservableObject {
 
     func children(of path: String) async -> [DiskMapNode] {
         if let cached = directoryChildren[path] { return cached }
+        let requestGeneration = generation
         let children = await DiskMapBuilder.children(of: path)
-        directoryChildren[path] = children
+        if requestGeneration == generation {
+            directoryChildren[path] = children
+        }
         return children
     }
 
+    func beginLoading(_ path: String) -> Int {
+        loadingPaths.insert(path)
+        isLoading = true
+        return generation
+    }
+
+    func finishLoading(_ path: String, generation requestGeneration: Int) {
+        guard requestGeneration == generation else { return }
+        loadingPaths.remove(path)
+        isLoading = !loadingPaths.isEmpty
+    }
+
     func clear() {
+        generation += 1
         root = nil
         stack.removeAll()
         directoryChildren.removeAll()
+        loadingPaths.removeAll()
+        isLoading = false
     }
 }
 
@@ -47,7 +67,7 @@ struct DiskMapView: View {
                 header
                 breadcrumb
 
-                if session.isLoading {
+                if session.isLoading && session.root == nil {
                     VStack(spacing: 12) {
                         ProgressView()
                         Text("正在展开目录…")
@@ -59,29 +79,43 @@ struct DiskMapView: View {
                     statsBar(current)
 
                     ZStack {
-                        MultiLevelTreemap(node: current) { node in
-                            drill(into: node)
+                        if session.loadingPaths.contains(current.path) {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("正在分析目录…")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("可以返回上级，分析会在后台继续")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            MultiLevelTreemap(node: current) { node in
+                                drill(into: node)
+                            }
+                            .frame(height: 480)
+                            .id(current.id)
+                            .transition(
+                                drillForward
+                                    ? .asymmetric(
+                                        insertion: .scale(scale: 0.92).combined(with: .opacity),
+                                        removal: .scale(scale: 1.08).combined(with: .opacity)
+                                    )
+                                    : .asymmetric(
+                                        insertion: .scale(scale: 1.08).combined(with: .opacity),
+                                        removal: .scale(scale: 0.92).combined(with: .opacity)
+                                    )
+                            )
                         }
-                        .frame(height: 480)
-                        .id(current.id)
-                        .transition(
-                            drillForward
-                                ? .asymmetric(
-                                    insertion: .scale(scale: 0.92).combined(with: .opacity),
-                                    removal: .scale(scale: 1.08).combined(with: .opacity)
-                                )
-                                : .asymmetric(
-                                    insertion: .scale(scale: 1.08).combined(with: .opacity),
-                                    removal: .scale(scale: 0.92).combined(with: .opacity)
-                                )
-                        )
 
-                        if current.children.isEmpty {
+                        if current.children.isEmpty && !session.loadingPaths.contains(current.path) {
                             Text("此节点下无可展示子项")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
+                    .frame(height: 480)
 
                     if let selectedFile {
                         HStack(spacing: 12) {
@@ -105,7 +139,7 @@ struct DiskMapView: View {
                         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
                     }
 
-                    Text("点按色块或小文件卡片查看内容 · 横向滚动查看其余项目 · 用上方路径返回")
+                    Text("点按色块查看内容 · 横向滚动整张地图查看右侧项目 · 用上方路径返回")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -221,7 +255,9 @@ struct DiskMapView: View {
     private func statsBar(_ node: DiskMapNode) -> some View {
         HStack(spacing: 12) {
             MetricTile(title: "当前节点", value: node.name, subtitle: node.path, gradient: Theme.accentGradient, compact: true)
-            MetricTile(title: "体量", value: node.sizeFormatted, subtitle: "\(node.children.count) 个子项", gradient: Theme.warmGradient, compact: true)
+            MetricTile(title: "体量", value: node.sizeFormatted,
+                       subtitle: session.loadingPaths.contains(node.path) ? "正在分析…" : "\(node.children.count) 个子项",
+                       gradient: Theme.warmGradient, compact: true)
         }
     }
 
@@ -239,13 +275,21 @@ struct DiskMapView: View {
     // MARK: - 动作
     private func rebuild() async {
         guard !session.isLoading else { return }
+        let requestGeneration = session.generation
         session.isLoading = true
-        defer { session.isLoading = false }
+        defer {
+            if requestGeneration == session.generation {
+                session.isLoading = !session.loadingPaths.isEmpty
+            }
+        }
         if viewModel.hasScanned {
-            session.root = await DiskMapBuilder.fromScanResults(viewModel.scanResults)
+            let root = await DiskMapBuilder.fromScanResults(viewModel.scanResults)
+            guard requestGeneration == session.generation else { return }
+            session.root = root
         } else {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             let children = await session.children(of: home)
+            guard requestGeneration == session.generation else { return }
             session.root = DiskMapNode(
                 id: "home",
                 name: "用户目录",
@@ -271,22 +315,41 @@ struct DiskMapView: View {
             return
         }
 
-        guard node.isDirectory, !session.isLoading else { return }
+        guard node.isDirectory else { return }
         if let children = session.cachedChildren(of: node.path) {
             showExpanded(node, children: children)
             return
         }
 
-        session.isLoading = true
+        if session.loadingPaths.contains(node.path) {
+            showExpanded(node, children: [])
+            return
+        }
+
+        let requestGeneration = session.beginLoading(node.path)
+        showExpanded(node, children: [])
         Task {
             let children = await session.children(of: node.path)
-            showExpanded(node, children: children)
-            session.isLoading = false
+            guard requestGeneration == session.generation else { return }
+            if let index = session.stack.lastIndex(where: { $0.path == node.path }) {
+                withAnimation(Theme.spring) {
+                    session.stack[index] = expanded(node, children: children)
+                }
+            }
+            session.finishLoading(node.path, generation: requestGeneration)
         }
     }
 
     private func showExpanded(_ node: DiskMapNode, children: [DiskMapNode]) {
-        let expanded = DiskMapNode(
+        let childNode = expanded(node, children: children)
+        drillForward = true
+        withAnimation(Theme.spring) {
+            session.stack.append(childNode)
+        }
+    }
+
+    private func expanded(_ node: DiskMapNode, children: [DiskMapNode]) -> DiskMapNode {
+        DiskMapNode(
             id: node.id,
             name: node.name,
             path: node.path,
@@ -294,10 +357,6 @@ struct DiskMapView: View {
             isDirectory: true,
             children: children
         )
-        drillForward = true
-        withAnimation(Theme.spring) {
-            session.stack.append(expanded)
-        }
     }
 }
 
@@ -312,25 +371,20 @@ struct MultiLevelTreemap: View {
     var body: some View {
         GeometryReader { geo in
             let arrangement = arrange(in: geo.size)
+            let childrenByID = Dictionary(node.children.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-            VStack(spacing: 0) {
-                if !arrangement.cells.isEmpty {
-                    ZStack(alignment: .topLeading) {
-                        ForEach(arrangement.cells) { cell in
-                            if let child = node.children.first(where: { $0.id == cell.node.id }) {
-                                largeBlock(child, cell: cell)
-                                    .position(x: cell.rect.midX, y: cell.rect.midY)
-                            }
+            ScrollView(.horizontal, showsIndicators: true) {
+                ZStack(alignment: .topLeading) {
+                    ForEach(arrangement.cells) { cell in
+                        if let child = childrenByID[cell.node.id] {
+                            largeBlock(child, cell: cell)
+                                .position(x: cell.rect.midX, y: cell.rect.midY)
                         }
                     }
-                    .frame(width: geo.size.width, height: arrangement.mapHeight)
                 }
-
-                if !arrangement.compact.isEmpty {
-                    compactStrip(arrangement.compact, rows: arrangement.rows)
-                        .frame(width: geo.size.width, height: arrangement.stripHeight)
-                }
+                .frame(width: arrangement.width, height: geo.size.height)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -356,27 +410,108 @@ struct MultiLevelTreemap: View {
         }
     }
 
-    private func arrange(in size: CGSize) -> (cells: [TreemapCell], compact: [DiskMapNode], mapHeight: CGFloat, stripHeight: CGFloat, rows: Int) {
-        let nodes = node.children.map {
-            TreemapNode(id: $0.id, name: $0.name, size: $0.size, color: color(for: $0, index: 0))
+    private func arrange(in size: CGSize) -> (cells: [TreemapCell], width: CGFloat) {
+        let viewportWidth = max(1, size.width)
+        guard !node.children.isEmpty else { return ([], viewportWidth) }
+
+        let height = max(1, size.height)
+        let columns = max(4, Int(viewportWidth / 140))
+        let rows = max(3, Int(height / 96))
+        let unitWidth = viewportWidth / CGFloat(columns)
+        let unitHeight = height / CGFloat(rows)
+        let maxColumnSpan = max(1, columns / 2)
+        let maxRowSpan = max(1, rows - 1)
+        let maximumUnits = maxColumnSpan * maxRowSpan
+        let density = sqrt(4.0 / Double(max(4, node.children.count)))
+        let largestUnits = max(1, min(maximumUnits, Int((Double(maximumUnits) * density).rounded())))
+        let sorted = node.children.sorted {
+            $0.size == $1.size ? $0.id < $1.id : $0.size > $1.size
         }
-        // 先按保留一行小项目的可用面积试排。放不下名称和大小的块统一进入横向区域。
-        let probeHeight = max(1, size.height - 154)
-        let probe = TreemapLayout.squarify(
-            nodes: nodes,
-            in: CGRect(x: 0, y: 0, width: size.width, height: probeHeight)
-        )
-        let readableIDs = Set(probe.filter { $0.rect.width >= 124 && $0.rect.height >= 74 }.map(\.id))
-        let large = nodes.filter { readableIDs.contains($0.id) }
-        let compact = node.children.filter { !readableIDs.contains($0.id) }
-        let rows = large.isEmpty ? 3 : 1
-        let stripHeight: CGFloat = compact.isEmpty ? 0 : (large.isEmpty ? size.height : 154)
-        let mapHeight = max(0, size.height - stripHeight)
-        let cells = TreemapLayout.squarify(
-            nodes: large,
-            in: CGRect(x: 0, y: 0, width: size.width, height: mapHeight)
-        )
-        return (cells, compact, mapHeight, stripHeight, rows)
+        let largestSize = Double(max(1, sorted.first?.size ?? 0))
+        var occupied: Set<Int> = []
+        var firstOpenColumn = 0
+        var usedColumns = 0
+        var cells: [TreemapCell] = []
+
+        // 从大到小放入网格；大块最多占可见宽度一半，高度也保留一行给其他文件。
+        for child in sorted {
+            let ratio = Double(max(0, child.size)) / largestSize
+            let desiredUnits = 1 + Double(largestUnits - 1) * pow(ratio, 0.85)
+            let span = bestSpan(
+                desiredUnits: desiredUnits,
+                maximumUnits: largestUnits,
+                maximumColumns: maxColumnSpan,
+                maximumRows: maxRowSpan,
+                unitSize: CGSize(width: unitWidth, height: unitHeight)
+            )
+
+            var column = firstOpenColumn
+            var placedRow = 0
+            search: while true {
+                for row in 0...(rows - span.rows) {
+                    let isFree = (column..<(column + span.columns)).allSatisfy { candidateColumn in
+                        (row..<(row + span.rows)).allSatisfy { candidateRow in
+                            !occupied.contains(candidateColumn * rows + candidateRow)
+                        }
+                    }
+                    if isFree {
+                        placedRow = row
+                        break search
+                    }
+                }
+                column += 1
+            }
+
+            for occupiedColumn in column..<(column + span.columns) {
+                for occupiedRow in placedRow..<(placedRow + span.rows) {
+                    occupied.insert(occupiedColumn * rows + occupiedRow)
+                }
+            }
+            usedColumns = max(usedColumns, column + span.columns)
+            while firstOpenColumn < usedColumns && (0..<rows).allSatisfy({ row in
+                occupied.contains(firstOpenColumn * rows + row)
+            }) {
+                firstOpenColumn += 1
+            }
+
+            let rect = CGRect(
+                x: CGFloat(column) * unitWidth,
+                y: CGFloat(placedRow) * unitHeight,
+                width: CGFloat(span.columns) * unitWidth,
+                height: CGFloat(span.rows) * unitHeight
+            ).insetBy(dx: 2, dy: 2)
+            let treemapNode = TreemapNode(
+                id: child.id,
+                name: child.name,
+                size: child.size,
+                color: color(for: child, index: 0)
+            )
+            cells.append(TreemapCell(node: treemapNode, rect: rect))
+        }
+        return (cells, max(viewportWidth, CGFloat(usedColumns) * unitWidth))
+    }
+
+    private func bestSpan(
+        desiredUnits: Double,
+        maximumUnits: Int,
+        maximumColumns: Int,
+        maximumRows: Int,
+        unitSize: CGSize
+    ) -> (columns: Int, rows: Int) {
+        var best = (columns: 1, rows: 1)
+        var bestScore = Double.infinity
+        for columns in 1...maximumColumns {
+            for rows in 1...maximumRows where columns * rows <= maximumUnits {
+                let areaDifference = abs(Double(columns * rows) - desiredUnits)
+                let aspectRatio = Double(CGFloat(columns) * unitSize.width / (CGFloat(rows) * unitSize.height))
+                let score = areaDifference + abs(log(aspectRatio)) * 0.15
+                if score < bestScore {
+                    best = (columns, rows)
+                    bestScore = score
+                }
+            }
+        }
+        return best
     }
 
     private func largeBlock(_ child: DiskMapNode, cell: TreemapCell) -> some View {
@@ -422,73 +557,6 @@ struct MultiLevelTreemap: View {
         }
         .buttonStyle(.plain)
         .animation(Theme.spring, value: selectedID)
-        .help("\(child.name) · \(child.sizeFormatted)")
-        .contextMenu {
-            DiskMapNodeContextMenu(node: child, onSelect: onDrill)
-        }
-    }
-
-    private func compactStrip(_ children: [DiskMapNode], rows: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("较小项目 · \(children.count) 项")
-                    .font(.system(size: 11, weight: .semibold))
-                Image(systemName: "arrow.left.and.right")
-                    .font(.system(size: 10))
-                Text("横向滚动查看")
-                    .font(.system(size: 10))
-            }
-            .foregroundColor(.secondary)
-
-            ScrollView(.horizontal, showsIndicators: true) {
-                LazyHGrid(rows: Array(repeating: GridItem(.fixed(104), spacing: 8), count: rows), spacing: 8) {
-                    ForEach(children) { child in
-                        compactBlock(child)
-                    }
-                }
-                .padding(.bottom, 4)
-            }
-        }
-        .padding(10)
-    }
-
-    private func compactBlock(_ child: DiskMapNode) -> some View {
-        let tint = color(for: child, index: 0)
-        let isSelected = selectedID == child.id
-        return Button {
-            select(child)
-        } label: {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [tint.opacity(0.92), tint.opacity(0.65)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isSelected ? Color.white : Color.white.opacity(0.35),
-                                lineWidth: isSelected ? 2.5 : 1)
-                }
-                .overlay(alignment: .topLeading) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Image(systemName: child.isDirectory ? "folder.fill" : "doc.fill")
-                            .font(.system(size: 13))
-                        Text(child.name)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        Text(child.sizeFormatted)
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                    }
-                    .foregroundColor(.white)
-                    .padding(10)
-                }
-                .frame(width: 172, height: 104)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
         .help("\(child.name) · \(child.sizeFormatted)")
         .contextMenu {
             DiskMapNodeContextMenu(node: child, onSelect: onDrill)
@@ -557,6 +625,27 @@ private struct DiskMapNodeContextMenu: View {
                 NSPasteboard.general.setString(node.path, forType: .string)
             } label: {
                 Label("复制路径", systemImage: "doc.on.doc")
+            }
+
+            Divider()
+            if UserWhitelist.contains(node.path) {
+                Button {
+                    UserWhitelist.remove(node.path)
+                } label: {
+                    Label("移出白名单", systemImage: "shield.slash")
+                }
+            } else if UserWhitelist.isWhitelisted(node.path) {
+                Button {} label: {
+                    Label("已受上级目录白名单保护", systemImage: "shield.lefthalf.filled")
+                }
+                .disabled(true)
+            } else {
+                Button {
+                    UserWhitelist.add(node.path)
+                } label: {
+                    Label("加入白名单", systemImage: "shield")
+                }
+                .help("加入后不会被清理或卸载")
             }
         }
 
