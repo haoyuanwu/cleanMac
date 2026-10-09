@@ -146,21 +146,30 @@ struct SmartCleanConfirmDialog: View {
             HStack(spacing: 12) {
                 Button(action: onCancel) {
                     Text("取消")
-                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                                )
+                        )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
 
                 Button(action: onConfirm) {
                     Label("清理所选项目", systemImage: "sparkles")
                         .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(GradientButtonStyleCompact())
+                .buttonStyle(CapsuleGradientButtonStyle())
                 .opacity(selectedItems.isEmpty ? 0.5 : 1)
                 .disabled(selectedItems.isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
-            .controlSize(.large)
         }
     }
 
@@ -249,5 +258,15 @@ struct SmartCleanConfirmDialog: View {
                 Label("加入白名单", systemImage: "shield.lefthalf.filled")
             }
         }
+    }
+}
+
+private struct CapsuleGradientButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(.white)
+            .background(Capsule(style: .continuous).fill(Theme.accentGradient))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(Theme.springSnappy, value: configuration.isPressed)
     }
 }

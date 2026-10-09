@@ -331,6 +331,7 @@ class MainViewModel: ObservableObject {
 
     /// 执行清理（用户已确认的列表）
     private func runSmartClean(items: [FileItem], plan: SmartCleanPlan) async {
+        let startedAt = Date()
         isSmartCleaning = true
         scanState = .cleaning
         var totalCleaned: Int64 = 0
@@ -362,6 +363,12 @@ class MainViewModel: ObservableObject {
             } catch {
                 // 继续其他类别
             }
+        }
+
+        // 即使清理项目很少，也让全屏动画至少完整展示一小段时间，避免一闪而过。
+        let elapsed = Date().timeIntervalSince(startedAt)
+        if elapsed < 1.2 {
+            try? await Task.sleep(nanoseconds: UInt64((1.2 - elapsed) * 1_000_000_000))
         }
 
         scanState = .completed

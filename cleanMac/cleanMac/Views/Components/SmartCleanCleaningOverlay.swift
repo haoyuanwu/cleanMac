@@ -10,7 +10,8 @@ struct SmartCleanCleaningOverlay: View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(Color.black.opacity(0.18))
+                .overlay(Color.black.opacity(0.34))
+                .overlay(Theme.accentGradient.opacity(0.08))
                 .ignoresSafeArea()
 
             VStack(spacing: 18) {
@@ -54,6 +55,8 @@ struct SmartCleanCleaningOverlay: View {
             )
             .elevatedShadow()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("正在智能清理，请稍候")
     }
