@@ -102,37 +102,103 @@ struct CategoryDetailView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // 顶部信息栏
-            headerBar
+        ZStack {
+            pageBackground
 
-            // 内容区域
-            if let result = result {
-                if result.isScanning {
-                    scanningView
-                } else if result.items.isEmpty && result.error != nil {
-                    scanErrorView
-                } else if result.items.isEmpty {
-                    emptyView
-                } else {
-                    fileListContent
+            VStack(spacing: 0) {
+                if result?.isScanning != true {
+                    headerBar
                 }
-            } else {
-                preScanView
+
+                if let result = result {
+                    if result.isScanning {
+                        scanningView
+                    } else if result.items.isEmpty && result.error != nil {
+                        scanErrorView
+                    } else if result.items.isEmpty {
+                        emptyView
+                    } else {
+                        fileListContent
+                    }
+                } else {
+                    preScanView
+                }
             }
         }
         .navigationTitle("")
         .onChange(of: result?.items.map(\.id) ?? []) { availableIDs in
             selectedFiles.formIntersection(availableIDs)
         }
-        .alert("清空废纸篓", isPresented: $showingEmptyTrashConfirmation) {
-            Button("取消", role: .cancel) { }
-            Button("清空废纸篓", role: .destructive) {
-                Task { await viewModel.emptyTrash() }
+        .overlay {
+            ModalHostView(
+                isPresented: showingEmptyTrashConfirmation,
+                onDismiss: { showingEmptyTrashConfirmation = false }
+            ) {
+                ModalDialogView(
+                    title: "清空废纸篓",
+                    message: "确定永久删除废纸篓中的 \(result?.itemCount ?? 0) 个项目吗？此操作无法撤销。",
+                    confirmTitle: "清空废纸篓",
+                    isDestructive: true,
+                    iconSystemName: "trash.slash.fill",
+                    onConfirm: {
+                        showingEmptyTrashConfirmation = false
+                        Task { await viewModel.emptyTrash() }
+                    },
+                    onCancel: {
+                        showingEmptyTrashConfirmation = false
+                    }
+                )
             }
-        } message: {
-            Text("确定永久删除废纸篓中的 \(result?.itemCount ?? 0) 个项目吗？此操作无法撤销。")
         }
+        .overlay {
+            // 清空废纸篓占位：阻断页面交互
+            if viewModel.isEmptyingTrash {
+                ZStack {
+                    Color.black.opacity(0.30)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.15)
+                        Text("正在清空废纸篓…")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("请稍候，完成后才能继续操作")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Theme.surfaceRaised)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    )
+                    .elevatedShadow()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            }
+        }
+        .animation(Theme.spring, value: showingEmptyTrashConfirmation)
+        .animation(Theme.spring, value: viewModel.isEmptyingTrash)
+    }
+
+    private var pageBackground: some View {
+        ZStack {
+            Theme.canvas
+            LinearGradient(
+                colors: [
+                    category.color.opacity(0.18),
+                    Color(red: 0.60, green: 0.67, blue: 0.98).opacity(0.10),
+                    category.color.opacity(0.05)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .ignoresSafeArea()
     }
     
     // MARK: - 顶部信息区（左：标题+指标 / 右：操作）
@@ -210,7 +276,6 @@ struct CategoryDetailView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
-        .background(Theme.canvas)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
@@ -293,7 +358,6 @@ struct CategoryDetailView: View {
             Spacer(minLength: 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas.ignoresSafeArea())
         .onAppear { startEntranceAnimation() }
         .onChange(of: category) { _ in
             appearProgress = 0
@@ -449,13 +513,12 @@ struct CategoryDetailView: View {
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 12)
-            .background(Theme.canvas)
 
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
                 .frame(height: 1)
 
-            // 文件列表
+            // 文件列表（底部为悬浮胶囊预留空间）
             ZStack {
                 FileListView(
                     files: sortedFiles,
@@ -475,26 +538,29 @@ struct CategoryDetailView: View {
                         viewModel.openFile(file)
                     }
                 )
+                // 列表底部留白，避免悬浮条盖住最后一行
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear
+                        .frame(height: selectedFileItems.isEmpty ? 12 : 88)
+                }
 
                 if sortedFiles.isEmpty {
                     noMatchesView
                 }
-
             }
-
-            // 汇总条单独占据底部空间，列表最后一行可完整滚动显示。
-            if !selectedFileItems.isEmpty {
-                selectionSummaryBar
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity)
-                    .background(Theme.canvas.opacity(0.92))
-                    .animation(Theme.spring, value: selectedFileItems.count)
+            .overlay(alignment: .bottom) {
+                if !selectedFileItems.isEmpty {
+                    selectionSummaryBar
+                        .padding(.bottom, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
+                }
             }
         }
         .onDeleteCommand {
             guard !selectedFileItems.isEmpty else { return }
             deleteSelectedFiles()
         }
+        .animation(Theme.spring, value: selectedFileItems.count)
     }
 
     // MARK: - 大文件时间线
@@ -553,7 +619,6 @@ struct CategoryDetailView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
-        .background(Theme.canvas)
     }
 
     private func bucketColor(_ bucket: FileAgeBucket) -> Color {
@@ -589,77 +654,71 @@ struct CategoryDetailView: View {
         .padding(.vertical, 8)
         .background(Theme.surfaceSunk.opacity(0.5))
     }
-    // MARK: - 选择汇总条（仅删除）
+    // MARK: - 选择汇总胶囊（悬浮，不遮挡列表）
     private var selectionSummaryBar: some View {
-        HStack(spacing: 14) {
-            // 数量 + 体量
-            HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Text("\(selectedFileItems.count)")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.accentGradient)
                     .monospacedDigit()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("已选择")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text(FileSizeFormatter.string(fromByteCount: selectedTotalSize))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                }
+                Text("已选")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                Text(FileSizeFormatter.string(fromByteCount: selectedTotalSize))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
             }
+            .padding(.leading, 14)
+            .padding(.trailing, 4)
 
-            ProportionBar(
-                progress: max(0, min(1, Double(selectedTotalSize) / Double(max(1, result?.totalSize ?? 1)))),
-                gradient: Theme.warmGradient,
-                height: 5
-            )
-            .frame(maxWidth: 120)
+            Divider()
+                .frame(height: 18)
 
-            Spacer(minLength: 8)
-
-            // 仅删除
             Button(role: .destructive) {
                 withAnimation(Theme.springSnappy) {
                     deleteSelectedFiles()
                 }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: category == .applications ? "trash" : "trash")
-                        .font(.system(size: 14, weight: .semibold))
+                HStack(spacing: 6) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .semibold))
                     Text(deleteButtonTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .foregroundColor(.white)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [Color.red.opacity(0.95), Color.red.opacity(0.78)],
+                                colors: [Color.red.opacity(0.95), Color.red.opacity(0.75)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                 )
-                .shadow(color: Color.red.opacity(0.35), radius: 10, y: 4)
+                .shadow(color: Color.red.opacity(0.3), radius: 8, y: 3)
             }
             .buttonStyle(.plain)
-            .scaleEffect(1)
+            .padding(.trailing, 8)
+            .padding(.vertical, 6)
             .accessibilityLabel(deleteButtonTitle)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        .padding(.vertical, 6)
+        .padding(.leading, 4)
+        .background(
+            Capsule()
+                .fill(.regularMaterial)
+                .overlay(
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
         )
-        .shadow(color: .black.opacity(0.14), radius: 22, y: 10)
-        .frame(maxWidth: 560)
-        .padding(.horizontal, 20)
-        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.96)))
+        .shadow(color: .black.opacity(0.16), radius: 24, y: 12)
+        .frame(height: 52)
     }
 
     private var deleteButtonTitle: String {
@@ -712,16 +771,10 @@ struct CategoryDetailView: View {
     }
 
     private var scanningView: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.5)
-            Text("正在扫描...")
-                .font(.headline)
-                .foregroundColor(.secondary)
-            Text("正在分析 \(category.rawValue) 中的文件")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
+        ScanningPlaceholderView(
+            title: "正在扫描…",
+            subtitle: "正在分析 \(category.rawValue) 中的文件"
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
@@ -796,7 +849,6 @@ struct CategoryDetailView: View {
             Spacer(minLength: 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas.ignoresSafeArea())
         .onAppear { startEntranceAnimation() }
     }
 

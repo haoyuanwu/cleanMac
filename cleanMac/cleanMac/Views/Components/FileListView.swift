@@ -90,7 +90,6 @@ struct FileListView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
         }
-        .background(Theme.canvas)
     }
 
     private func toggleSelection(for file: FileItem) {

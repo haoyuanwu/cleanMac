@@ -8,14 +8,31 @@ struct ModalDialogView: View {
     var cancelTitle: String = "取消"
     var isDestructive: Bool = false
     var showsCancel: Bool = true
+    var iconSystemName: String? = nil
     let onConfirm: () -> Void
     var onCancel: (() -> Void)? = nil
 
+    @State private var appeared = false
+
     var body: some View {
         VStack(spacing: 18) {
+            // 图标
+            ZStack {
+                Circle()
+                    .fill(iconBackground)
+                    .frame(width: 64, height: 64)
+                    .blur(radius: 10)
+                Image(systemName: iconSystemName ?? (isDestructive ? "trash.fill" : "checkmark.circle.fill"))
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundColor(isDestructive ? .red : Color.accentColor)
+            }
+            .opacity(appeared ? 1 : 0)
+            .scaleEffect(appeared ? 1 : 0.7)
+            .animation(Theme.springSnappy.delay(0.02), value: appeared)
+
             VStack(spacing: 10) {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
 
                 Text(message)
@@ -25,6 +42,9 @@ struct ModalDialogView: View {
                     .lineSpacing(4)
                     .frame(maxWidth: 360)
             }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 8)
+            .animation(Theme.easeSlow.delay(0.06), value: appeared)
 
             HStack(spacing: 12) {
                 if showsCancel {
@@ -34,7 +54,7 @@ struct ModalDialogView: View {
                         Text(cancelTitle)
                             .font(.system(size: 13, weight: .medium))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 11)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -44,32 +64,63 @@ struct ModalDialogView: View {
                     Text(confirmTitle)
                         .font(.system(size: 13, weight: .semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 11)
                         .foregroundColor(.white)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            Capsule()
                                 .fill(
                                     isDestructive
-                                        ? AnyShapeStyle(Color.red.opacity(0.92))
+                                        ? AnyShapeStyle(LinearGradient(
+                                            colors: [Color.red.opacity(0.95), Color.red.opacity(0.75)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ))
                                         : AnyShapeStyle(Theme.accentGradient)
                                 )
+                        )
+                        .shadow(
+                            color: (isDestructive ? Color.red : Color.blue).opacity(0.28),
+                            radius: 12,
+                            y: 5
                         )
                 }
                 .buttonStyle(.plain)
                 .controlSize(.large)
             }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 10)
+            .animation(Theme.spring.delay(0.1), value: appeared)
         }
-        .padding(24)
-        .frame(width: 420)
+        .padding(26)
+        .frame(width: 440)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Theme.surfaceRaised)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.5), Color.primary.opacity(0.06)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
                 )
         )
         .elevatedShadow()
+        .scaleEffect(appeared ? 1 : 0.92)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(Theme.spring) { appeared = true }
+        }
+    }
+
+    private var iconBackground: some ShapeStyle {
+        if isDestructive {
+            return AnyShapeStyle(Color.red.opacity(0.16))
+        }
+        return AnyShapeStyle(Color.accentColor.opacity(0.14))
     }
 }
 
@@ -84,12 +135,14 @@ struct ModalHostView<Dialog: View>: View {
             ZStack {
                 Color.black.opacity(0.32)
                     .ignoresSafeArea()
+                    .opacity(isPresented ? 1 : 0)
                     .onTapGesture(perform: onDismiss)
 
                 dialog()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .transition(.opacity)
+            .animation(Theme.spring, value: isPresented)
         }
     }
 }

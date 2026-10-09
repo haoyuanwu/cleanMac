@@ -4,11 +4,17 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var viewModel = MainViewModel()
     @StateObject private var xcodeAnalysisViewModel = XcodeAnalysisViewModel()
+    @StateObject private var diskMapSession = DiskMapSession()
     @State private var selectedTab: SidebarView.SidebarTab = .dashboard
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(viewModel: viewModel, selectedTab: $selectedTab)
+            SidebarView(
+                viewModel: viewModel,
+                xcodeIsScanning: xcodeAnalysisViewModel.isScanning,
+                diskMapIsLoading: diskMapSession.isLoading,
+                selectedTab: $selectedTab
+            )
                 .scrollContentBackground(.hidden)
                 .background(Theme.sidebarGradient.ignoresSafeArea())
         } detail: {
@@ -32,7 +38,7 @@ struct ContentView: View {
                     case .xcode:
                         XcodeAnalysisView(viewModel: xcodeAnalysisViewModel)
                     case .diskMap:
-                        DiskMapView(viewModel: viewModel)
+                        DiskMapView(viewModel: viewModel, session: diskMapSession)
                     case .whitelist:
                         WhitelistView()
                     case .settings:
@@ -42,6 +48,11 @@ struct ContentView: View {
 
                 // 居中模态：卸载残留 / 删除确认 / 提示
                 modalLayer
+
+                // 删除成功：Vortex 撒花 × 2
+                CelebrationBanner(token: viewModel.celebrationToken)
+                    .zIndex(30)
+                    .allowsHitTesting(false)
             }
         }
         .navigationTitle("cleanMac")

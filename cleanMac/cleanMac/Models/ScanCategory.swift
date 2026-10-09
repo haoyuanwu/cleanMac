@@ -6,7 +6,7 @@ enum ScanCategory: String, CaseIterable, Identifiable {
     case systemCache = "系统缓存"
     case logFiles = "日志文件"
     case browserCache = "浏览器缓存"
-    case trash = "清空废纸篓"
+    case trash = "废纸篓"
     case appLeftover = "应用残留"
     case downloads = "下载文件夹"
     case largeFiles = "大文件"
@@ -59,7 +59,7 @@ enum ScanCategory: String, CaseIterable, Identifiable {
         case .downloads: return "清理下载文件夹中的文件"
         case .largeFiles: return "扫描磁盘上占用大量空间的文件"
         case .applications: return "管理已安装的应用程序"
-        case .installers: return "清理 .pkg 和 .dmg 安装包文件"
+        case .installers: return "清理 .pkg、.dmg、.apk、.exe 等安装包文件"
         }
     }
     

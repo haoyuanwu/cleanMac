@@ -3,6 +3,8 @@ import SwiftUI
 /// 侧边栏视图
 struct SidebarView: View {
     @ObservedObject var viewModel: MainViewModel
+    let xcodeIsScanning: Bool
+    let diskMapIsLoading: Bool
     @Binding var selectedTab: SidebarTab
     
     enum SidebarTab: String, CaseIterable, Hashable, Identifiable {
@@ -23,7 +25,8 @@ struct SidebarView: View {
                     title: "概览",
                     icon: "SidebarOverview",
                     iconColor: .blue,
-                    isSelected: selectedTab == .dashboard
+                    isSelected: selectedTab == .dashboard,
+                    isScanning: viewModel.isScanning
                 )
                 .onTapGesture {
                     withAnimation(Theme.spring) {
@@ -75,7 +78,8 @@ struct SidebarView: View {
                     title: "磁盘地图",
                     icon: "SFSymbol:square.grid.3x3.topleft.filled",
                     iconColor: .purple,
-                    isSelected: selectedTab == .diskMap
+                    isSelected: selectedTab == .diskMap,
+                    isScanning: diskMapIsLoading
                 )
                 .onTapGesture {
                     withAnimation(Theme.spring) {
@@ -99,7 +103,8 @@ struct SidebarView: View {
                     title: "Xcode 分析",
                     icon: "SidebarXcode",
                     iconColor: .indigo,
-                    isSelected: selectedTab == .xcode
+                    isSelected: selectedTab == .xcode,
+                    isScanning: xcodeIsScanning
                 )
                 .onTapGesture {
                     withAnimation(Theme.spring) {
@@ -147,6 +152,7 @@ struct SidebarRow: View {
     let icon: String
     let iconColor: Color
     let isSelected: Bool
+    var isScanning = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -173,6 +179,12 @@ struct SidebarRow: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? iconColor : iconColor.opacity(0.12))
             )
+            .overlay(alignment: .topTrailing) {
+                if isScanning {
+                    SidebarScanBadge(color: iconColor)
+                        .offset(x: 5, y: -5)
+                }
+            }
             .accessibilityHidden(true)
 
             Text(title)
@@ -187,6 +199,7 @@ struct SidebarRow: View {
                 .fill(isSelected ? iconColor.opacity(0.14) : Color.clear)
         )
         .contentShape(Rectangle())
+        .accessibilityValue(isScanning ? "正在扫描" : "")
     }
 }
 
@@ -213,6 +226,12 @@ struct CategorySidebarRow: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(category.color.opacity(isSelected ? 0.95 : 0.12))
                 )
+                .overlay(alignment: .topTrailing) {
+                    if result?.isScanning == true {
+                        SidebarScanBadge(color: category.color)
+                            .offset(x: 5, y: -5)
+                    }
+                }
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -221,7 +240,9 @@ struct CategorySidebarRow: View {
                     .foregroundColor(isSelected ? category.color : .primary)
 
                 if let result = result {
-                    Text(result.error != nil
+                    Text(result.isScanning
+                         ? "正在扫描…"
+                         : result.error != nil
                          ? (result.items.isEmpty ? "需要授权访问" : "部分内容无法读取")
                          : "\(result.itemCount) 个\(category.itemUnit) · \(result.totalSizeFormatted)")
                         .font(.system(size: 10))
@@ -233,9 +254,9 @@ struct CategorySidebarRow: View {
             Spacer(minLength: 4)
 
             if result?.isScanning == true {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .tint(.accentColor)
+                Text("扫描中")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(category.color)
             } else if result?.error != nil {
                 Image("SidebarWarning")
                     .renderingMode(.template)
@@ -267,5 +288,36 @@ struct CategorySidebarRow: View {
         .background(isSelected ? category.color.opacity(0.1) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
+        .accessibilityValue(result?.isScanning == true ? "正在扫描" : "")
+    }
+}
+
+private struct SidebarScanBadge: View {
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                badge(rotation: 0)
+            } else {
+                TimelineView(.animation) { timeline in
+                    let phase = timeline.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1.2) / 1.2
+                    badge(rotation: phase * 360)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func badge(rotation: Double) -> some View {
+        Image(systemName: "arrow.2.circlepath")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundColor(.white)
+            .rotationEffect(.degrees(rotation))
+            .frame(width: 16, height: 16)
+            .background(color, in: Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
     }
 }

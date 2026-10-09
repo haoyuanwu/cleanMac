@@ -3,17 +3,19 @@ import AppKit
 
 struct XcodeAnalysisView: View {
     @ObservedObject var viewModel: XcodeAnalysisViewModel
+    @State private var pendingDeletion: XcodeArtifact?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader
 
-                if let result = viewModel.result {
+                if viewModel.isScanning {
+                    scanningState
+                } else if let result = viewModel.result {
                     summarySection(result)
                     kindSections(result)
-                } else if viewModel.isScanning {
-                    scanningState
                 } else {
                     idleState
                 }
@@ -26,6 +28,23 @@ struct XcodeAnalysisView: View {
         }
         .navigationTitle("")
         .background(Theme.canvas.ignoresSafeArea())
+        .alert("移到废纸篓", isPresented: $showingDeleteConfirmation, presenting: pendingDeletion) { item in
+            Button("取消", role: .cancel) { pendingDeletion = nil }
+            Button("移到废纸篓", role: .destructive) {
+                pendingDeletion = nil
+                viewModel.moveToTrash(item)
+            }
+        } message: { item in
+            Text("确定将“\(item.name)”（\(item.sizeFormatted)）移到废纸篓吗？")
+        }
+        .alert("删除失败", isPresented: Binding(
+            get: { viewModel.deletionError != nil },
+            set: { if !$0 { viewModel.deletionError = nil } }
+        )) {
+            Button("好的", role: .cancel) { viewModel.deletionError = nil }
+        } message: {
+            Text(viewModel.deletionError ?? "")
+        }
     }
 
     // MARK: - 页头
@@ -70,7 +89,7 @@ struct XcodeAnalysisView: View {
             ) {
                 viewModel.scan()
             }
-            .disabled(viewModel.isScanning)
+            .disabled(viewModel.isScanning || viewModel.isDeleting)
         }
     }
 
@@ -174,17 +193,11 @@ struct XcodeAnalysisView: View {
     }
 
     private var scanningState: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .scaleEffect(1.2)
-            Text("正在分析 Xcode 生成的文件和插件…")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.secondary)
-            Text("可切换其他页面，分析会在后台继续")
-                .font(.caption)
-                .foregroundColor(.secondary.opacity(0.8))
-        }
-        .frame(maxWidth: .infinity, minHeight: 280)
+        ScanningPlaceholderView(
+            title: "正在分析 Xcode 数据…",
+            subtitle: "可切换其他页面，分析会在后台继续"
+        )
+        .frame(maxWidth: .infinity, minHeight: 320)
     }
 
     // MARK: - 分组卡片
@@ -305,5 +318,15 @@ struct XcodeAnalysisView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.025))
         )
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDeletion = item
+                showingDeleteConfirmation = true
+            } label: {
+                Label("移到废纸篓", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDelete(item) || viewModel.isScanning || viewModel.isDeleting)
+        }
     }
 }

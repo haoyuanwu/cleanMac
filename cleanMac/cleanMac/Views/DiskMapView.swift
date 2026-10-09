@@ -1,19 +1,44 @@
 import SwiftUI
+import Combine
+
+/// 随主窗口存活的临时会话；刷新时清空，退出应用后自然释放。
+@MainActor
+final class DiskMapSession: ObservableObject {
+    @Published var root: DiskMapNode?
+    @Published var stack: [DiskMapNode] = []
+    @Published var isLoading = false
+
+    private var directoryChildren: [String: [DiskMapNode]] = [:]
+
+    func cachedChildren(of path: String) -> [DiskMapNode]? {
+        directoryChildren[path]
+    }
+
+    func children(of path: String) async -> [DiskMapNode] {
+        if let cached = directoryChildren[path] { return cached }
+        let children = await DiskMapBuilder.children(of: path)
+        directoryChildren[path] = children
+        return children
+    }
+
+    func clear() {
+        root = nil
+        stack.removeAll()
+        directoryChildren.removeAll()
+    }
+}
 
 /// 多级磁盘 Treemap 页面：点击块下钻，面包屑返回
 struct DiskMapView: View {
     @ObservedObject var viewModel: MainViewModel
+    @ObservedObject var session: DiskMapSession
 
-    @State private var root: DiskMapNode?
-    @State private var stack: [DiskMapNode] = []
     @State private var selectedFile: DiskMapNode?
-    @State private var isLoading = false
-    @State private var appeared = false
     /// 下钻方向：true 向下，false 返回
     @State private var drillForward = true
 
     private var current: DiskMapNode? {
-        stack.last ?? root
+        session.stack.last ?? session.root
     }
 
     var body: some View {
@@ -22,7 +47,7 @@ struct DiskMapView: View {
                 header
                 breadcrumb
 
-                if isLoading {
+                if session.isLoading {
                     VStack(spacing: 12) {
                         ProgressView()
                         Text("正在展开目录…")
@@ -80,39 +105,7 @@ struct DiskMapView: View {
                         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if !current.children.isEmpty {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 8)], spacing: 8) {
-                            ForEach(current.children.filter { $0.size > 0 }.sorted { $0.size > $1.size }) { child in
-                                Button {
-                                    drill(into: child)
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: child.isDirectory ? "folder.fill" : "doc.fill")
-                                            .foregroundColor(.accentColor)
-                                        Text(child.name)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                        Spacer(minLength: 4)
-                                        Text(child.sizeFormatted)
-                                            .foregroundColor(.secondary)
-                                            .monospacedDigit()
-                                    }
-                                    .font(.system(size: 11))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .help(child.path)
-                                .contextMenu {
-                                    DiskMapNodeContextMenu(node: child, onSelect: drill)
-                                }
-                            }
-                        }
-                    }
-
-                    Text("点按目录色块下钻，点按文件色块查看详情 · 用上方路径返回")
+                    Text("点按色块或小文件卡片查看内容 · 横向滚动查看其余项目 · 用上方路径返回")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -129,8 +122,7 @@ struct DiskMapView: View {
         .background(Theme.canvas.ignoresSafeArea())
         .onChange(of: current?.id) { _ in selectedFile = nil }
         .task {
-            guard !appeared else { return }
-            appeared = true
+            guard session.root == nil else { return }
             await rebuild()
         }
     }
@@ -166,11 +158,11 @@ struct DiskMapView: View {
 
             DetailTextButton(title: "刷新", systemImage: "arrow.clockwise") {
                 Task {
-                    stack.removeAll()
+                    session.clear()
                     await rebuild()
                 }
             }
-            .disabled(isLoading)
+            .disabled(session.isLoading)
         }
     }
 
@@ -181,7 +173,7 @@ struct DiskMapView: View {
                 Button {
                     drillForward = false
                     withAnimation(Theme.spring) {
-                        stack.removeAll()
+                        session.stack.removeAll()
                     }
                 } label: {
                     Text("根")
@@ -190,20 +182,20 @@ struct DiskMapView: View {
                         .padding(.vertical, 6)
                         .background(
                             Capsule()
-                                .fill(stack.isEmpty ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.primary.opacity(0.05)))
+                                .fill(session.stack.isEmpty ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.primary.opacity(0.05)))
                         )
-                        .foregroundColor(stack.isEmpty ? .white : .primary)
+                        .foregroundColor(session.stack.isEmpty ? .white : .primary)
                 }
                 .buttonStyle(.plain)
 
-                ForEach(Array(stack.enumerated()), id: \.element.id) { index, node in
+                ForEach(Array(session.stack.enumerated()), id: \.element.id) { index, node in
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.secondary)
                     Button {
                         drillForward = false
                         withAnimation(Theme.spring) {
-                            stack = Array(stack.prefix(index + 1))
+                            session.stack = Array(session.stack.prefix(index + 1))
                         }
                     } label: {
                         Text(node.name)
@@ -212,15 +204,15 @@ struct DiskMapView: View {
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(index == stack.count - 1
+                                    .fill(index == session.stack.count - 1
                                           ? AnyShapeStyle(Theme.accentGradient)
                                           : AnyShapeStyle(Color.primary.opacity(0.05)))
                             )
-                            .foregroundColor(index == stack.count - 1 ? .white : .primary)
+                            .foregroundColor(index == session.stack.count - 1 ? .white : .primary)
                     }
                     .buttonStyle(.plain)
-                    .scaleEffect(index == stack.count - 1 ? 1.02 : 1)
-                    .animation(Theme.springSnappy, value: stack.count)
+                    .scaleEffect(index == session.stack.count - 1 ? 1.02 : 1)
+                    .animation(Theme.springSnappy, value: session.stack.count)
                 }
             }
         }
@@ -246,12 +238,15 @@ struct DiskMapView: View {
 
     // MARK: - 动作
     private func rebuild() async {
-        isLoading = true
+        guard !session.isLoading else { return }
+        session.isLoading = true
+        defer { session.isLoading = false }
         if viewModel.hasScanned {
-            root = await DiskMapBuilder.fromScanResults(viewModel.scanResults)
-        } else if let home = Optional(FileManager.default.homeDirectoryForCurrentUser.path) {
-            let children = await DiskMapBuilder.children(of: home, limit: 18)
-            root = DiskMapNode(
+            session.root = await DiskMapBuilder.fromScanResults(viewModel.scanResults)
+        } else {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let children = await session.children(of: home)
+            session.root = DiskMapNode(
                 id: "home",
                 name: "用户目录",
                 path: home,
@@ -260,7 +255,6 @@ struct DiskMapView: View {
                 children: children
             )
         }
-        isLoading = false
     }
 
     private func drill(into node: DiskMapNode) {
@@ -269,32 +263,40 @@ struct DiskMapView: View {
             return
         }
 
-        Task {
-            // 已有子项（扫描结果构建）直接下钻，避免误当路径去扫
-            if !node.children.isEmpty {
-                drillForward = true
-                withAnimation(Theme.spring) {
-                    stack.append(node)
-                }
-                return
-            }
-
-            guard node.isDirectory else { return }
-            isLoading = true
-            let children = await DiskMapBuilder.children(of: node.path, limit: 24)
-            let expanded = DiskMapNode(
-                id: node.id,
-                name: node.name,
-                path: node.path,
-                size: node.size,
-                isDirectory: true,
-                children: children
-            )
+        if !node.children.isEmpty {
             drillForward = true
             withAnimation(Theme.spring) {
-                stack.append(expanded)
+                session.stack.append(node)
             }
-            isLoading = false
+            return
+        }
+
+        guard node.isDirectory, !session.isLoading else { return }
+        if let children = session.cachedChildren(of: node.path) {
+            showExpanded(node, children: children)
+            return
+        }
+
+        session.isLoading = true
+        Task {
+            let children = await session.children(of: node.path)
+            showExpanded(node, children: children)
+            session.isLoading = false
+        }
+    }
+
+    private func showExpanded(_ node: DiskMapNode, children: [DiskMapNode]) {
+        let expanded = DiskMapNode(
+            id: node.id,
+            name: node.name,
+            path: node.path,
+            size: node.size,
+            isDirectory: true,
+            children: children
+        )
+        drillForward = true
+        withAnimation(Theme.spring) {
+            session.stack.append(expanded)
         }
     }
 }
@@ -309,84 +311,24 @@ struct MultiLevelTreemap: View {
 
     var body: some View {
         GeometryReader { geo in
-            let cells = TreemapLayout.squarify(
-                nodes: node.children.map {
-                    TreemapNode(id: $0.id, name: $0.name, size: $0.size, color: color(for: $0, index: 0), children: [])
-                },
-                in: CGRect(origin: .zero, size: geo.size)
-            )
+            let arrangement = arrange(in: geo.size)
 
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(cells.enumerated()), id: \.element.id) { index, cell in
-                    let child = node.children.first { $0.id == cell.node.id }
-                    let tint = color(for: child ?? sampleNode(cell.node), index: index)
-                    let isSelected = selectedID == cell.node.id
-
-                    Button {
-                        guard let child else { return }
-                        withAnimation(Theme.spring) {
-                            selectedID = child.id
-                        }
-                        onDrill(child)
-                    } label: {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [tint.opacity(0.92), tint.opacity(0.62)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(
-                                    isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.35),
-                                    lineWidth: isSelected ? 2.5 : 1
-                                )
-                        )
-                        .overlay(alignment: .topLeading) {
-                            if cell.rect.width > 44 && cell.rect.height > 22 {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(cell.node.name)
-                                        .font(.system(size: cell.rect.width > 72 ? 13 : 10, weight: .semibold))
-                                        .foregroundColor(.white)
-                                        .lineLimit(cell.rect.height > 40 ? 2 : 1)
-                                        .truncationMode(.middle)
-                                        .minimumScaleFactor(0.6)
-                                    if cell.rect.width > 80 && cell.rect.height > 56 {
-                                        Text(cell.node.sizeFormatted)
-                                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                                            .foregroundColor(.white.opacity(0.95))
-                                            .monospacedDigit()
-                                    }
-                                    if cell.rect.width > 100 && cell.rect.height > 80 {
-                                        Text(hint(for: child))
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.white.opacity(0.85))
-                                    }
-                                }
-                                .padding(cell.rect.width > 72 ? 10 : 4)
+            VStack(spacing: 0) {
+                if !arrangement.cells.isEmpty {
+                    ZStack(alignment: .topLeading) {
+                        ForEach(arrangement.cells) { cell in
+                            if let child = node.children.first(where: { $0.id == cell.node.id }) {
+                                largeBlock(child, cell: cell)
+                                    .position(x: cell.rect.midX, y: cell.rect.midY)
                             }
                         }
-                        .frame(width: cell.rect.width, height: cell.rect.height)
-                        .scaleEffect(isSelected ? 0.97 : (0.86 + 0.14 * reveal))
-                        .opacity(Double(reveal))
-                        .shadow(
-                            color: isSelected ? tint.opacity(0.45) : .clear,
-                            radius: 12,
-                            y: 4
-                        )
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .position(x: cell.rect.midX, y: cell.rect.midY)
-                    .animation(Theme.spring, value: selectedID)
-                    .help("\(cell.node.name) · \(cell.node.sizeFormatted)")
-                    .contextMenu {
-                        if let child {
-                            DiskMapNodeContextMenu(node: child, onSelect: onDrill)
-                        }
-                    }
+                    .frame(width: geo.size.width, height: arrangement.mapHeight)
+                }
+
+                if !arrangement.compact.isEmpty {
+                    compactStrip(arrangement.compact, rows: arrangement.rows)
+                        .frame(width: geo.size.width, height: arrangement.stripHeight)
                 }
             }
         }
@@ -414,15 +356,157 @@ struct MultiLevelTreemap: View {
         }
     }
 
+    private func arrange(in size: CGSize) -> (cells: [TreemapCell], compact: [DiskMapNode], mapHeight: CGFloat, stripHeight: CGFloat, rows: Int) {
+        let nodes = node.children.map {
+            TreemapNode(id: $0.id, name: $0.name, size: $0.size, color: color(for: $0, index: 0))
+        }
+        // 先按保留一行小项目的可用面积试排。放不下名称和大小的块统一进入横向区域。
+        let probeHeight = max(1, size.height - 154)
+        let probe = TreemapLayout.squarify(
+            nodes: nodes,
+            in: CGRect(x: 0, y: 0, width: size.width, height: probeHeight)
+        )
+        let readableIDs = Set(probe.filter { $0.rect.width >= 124 && $0.rect.height >= 74 }.map(\.id))
+        let large = nodes.filter { readableIDs.contains($0.id) }
+        let compact = node.children.filter { !readableIDs.contains($0.id) }
+        let rows = large.isEmpty ? 3 : 1
+        let stripHeight: CGFloat = compact.isEmpty ? 0 : (large.isEmpty ? size.height : 154)
+        let mapHeight = max(0, size.height - stripHeight)
+        let cells = TreemapLayout.squarify(
+            nodes: large,
+            in: CGRect(x: 0, y: 0, width: size.width, height: mapHeight)
+        )
+        return (cells, compact, mapHeight, stripHeight, rows)
+    }
+
+    private func largeBlock(_ child: DiskMapNode, cell: TreemapCell) -> some View {
+        let tint = color(for: child, index: 0)
+        let isSelected = selectedID == child.id
+        return Button {
+            select(child)
+        } label: {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [tint.opacity(0.92), tint.opacity(0.62)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.35),
+                                lineWidth: isSelected ? 2.5 : 1)
+                }
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(child.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Text(child.sizeFormatted)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        if cell.rect.height > 100 {
+                            Text(hint(for: child))
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding(10)
+                }
+                .frame(width: cell.rect.width, height: cell.rect.height)
+                .scaleEffect(isSelected ? 0.97 : (0.86 + 0.14 * reveal))
+                .opacity(Double(reveal))
+                .shadow(color: isSelected ? tint.opacity(0.45) : .clear, radius: 12, y: 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(Theme.spring, value: selectedID)
+        .help("\(child.name) · \(child.sizeFormatted)")
+        .contextMenu {
+            DiskMapNodeContextMenu(node: child, onSelect: onDrill)
+        }
+    }
+
+    private func compactStrip(_ children: [DiskMapNode], rows: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("较小项目 · \(children.count) 项")
+                    .font(.system(size: 11, weight: .semibold))
+                Image(systemName: "arrow.left.and.right")
+                    .font(.system(size: 10))
+                Text("横向滚动查看")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(.secondary)
+
+            ScrollView(.horizontal, showsIndicators: true) {
+                LazyHGrid(rows: Array(repeating: GridItem(.fixed(104), spacing: 8), count: rows), spacing: 8) {
+                    ForEach(children) { child in
+                        compactBlock(child)
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+        }
+        .padding(10)
+    }
+
+    private func compactBlock(_ child: DiskMapNode) -> some View {
+        let tint = color(for: child, index: 0)
+        let isSelected = selectedID == child.id
+        return Button {
+            select(child)
+        } label: {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [tint.opacity(0.92), tint.opacity(0.65)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isSelected ? Color.white : Color.white.opacity(0.35),
+                                lineWidth: isSelected ? 2.5 : 1)
+                }
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Image(systemName: child.isDirectory ? "folder.fill" : "doc.fill")
+                            .font(.system(size: 13))
+                        Text(child.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                        Text(child.sizeFormatted)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                    }
+                    .foregroundColor(.white)
+                    .padding(10)
+                }
+                .frame(width: 172, height: 104)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(child.name) · \(child.sizeFormatted)")
+        .contextMenu {
+            DiskMapNodeContextMenu(node: child, onSelect: onDrill)
+        }
+    }
+
+    private func select(_ child: DiskMapNode) {
+        withAnimation(Theme.spring) {
+            selectedID = child.id
+        }
+        onDrill(child)
+    }
+
     private func hint(for child: DiskMapNode?) -> String {
         guard let child else { return "" }
         if !child.children.isEmpty { return "点按下钻 · \(child.children.count) 项" }
         if child.isDirectory { return "点按下钻子目录" }
         return "点按查看文件详情"
-    }
-
-    private func sampleNode(_ node: TreemapNode) -> DiskMapNode {
-        DiskMapNode(id: node.id, name: node.name, path: node.id, size: node.size, isDirectory: true)
     }
 
     private func color(for node: DiskMapNode, index: Int) -> Color {

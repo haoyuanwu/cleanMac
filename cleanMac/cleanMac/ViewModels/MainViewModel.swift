@@ -31,6 +31,25 @@ class MainViewModel: ObservableObject {
     @Published var smartCleanDraft: SmartCleanPlan?
     @Published var smartCleanSelectedPaths: Set<String> = []
     @Published var showingSmartCleanDialog = false
+    /// 清空废纸篓过程占位（阻断交互）
+    @Published var isEmptyingTrash = false
+    /// 删除成功烟花庆祝
+    @Published var celebrationToken = 0
+
+    /// 文件已不存在（已被删除/移动）时视为成功路径，直接刷新
+    private func isFileGoneError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain {
+            // NSFileNoSuchFileError = 4, NSFileReadNoSuchFileError = 260
+            if ns.code == 4 || ns.code == 260 { return true }
+        }
+        if ns.domain == NSPOSIXErrorDomain && ns.code == 2 { return true } // ENOENT
+        let message = ns.localizedDescription.lowercased()
+        return message.contains("doesn't exist")
+            || message.contains("doesn’t exist")
+            || message.contains("no such file")
+            || message.contains("not found")
+    }
 
     struct DeleteRequest: Identifiable, Equatable {
         let id = UUID()
@@ -303,6 +322,9 @@ class MainViewModel: ObservableObject {
         }
 
         scanState = .completed
+        if totalCleaned > 0 {
+            celebrationToken += 1
+        }
         alertTitle = "智能清理完成"
         alertMessage = "已清理 \(FileSizeFormatter.string(fromByteCount: totalCleaned)) 空间（\(items.count) 项）。"
         showingAlert = true
@@ -369,6 +391,9 @@ class MainViewModel: ObservableObject {
             return
         }
 
+        isEmptyingTrash = true
+        AppLog.info("emptyTrash start", metadata: ["count": "\(result.items.count)"])
+
         let outcome = await cleanService.emptyTrash(items: result.items)
         let rescan = await scanService.scanTrash()
         scanResults[.trash] = ScanResult(
@@ -377,12 +402,17 @@ class MainViewModel: ObservableObject {
             isCleaned: rescan.items.isEmpty && rescan.error == nil,
             error: rescan.error
         )
+        isEmptyingTrash = false
 
         alertTitle = outcome.failedCount == 0 && rescan.error == nil ? "废纸篓已清空" : "部分清空失败"
         alertMessage = outcome.failedCount == 0 && rescan.error == nil
             ? "已清理 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes)) 空间"
             : "\(outcome.failedCount) 个项目未能删除，请检查权限后重新扫描。"
         showingAlert = true
+        AppLog.info("emptyTrash finished", metadata: [
+            "failed": "\(outcome.failedCount)",
+            "bytes": "\(outcome.cleanedBytes)"
+        ])
     }
     
     /// 请求删除单个文件（显示确认对话框）
@@ -473,6 +503,7 @@ class MainViewModel: ObservableObject {
         Task {
             let fileManager = FileManager.default
             var failed = 0
+            var removed = 0
             for file in files {
                 do {
                     if category == .trash {
@@ -480,20 +511,38 @@ class MainViewModel: ObservableObject {
                     } else {
                         try fileManager.trashItem(at: file.pathURL, resultingItemURL: nil)
                     }
+                    removed += 1
                     AppLog.info("deleted", metadata: ["path": file.path])
                     await MainActor.run {
                         scanResults[category]?.items.removeAll { $0.path == file.path }
                     }
                 } catch {
-                    failed += 1
-                    AppLog.error("delete failed", metadata: [
-                        "path": file.path,
-                        "error": error.localizedDescription
-                    ])
+                    if isFileGoneError(error) {
+                        // 已被删除：静默从列表移除，不报错
+                        removed += 1
+                        AppLog.info("delete skip already gone", metadata: ["path": file.path])
+                        await MainActor.run {
+                            scanResults[category]?.items.removeAll { $0.path == file.path }
+                        }
+                    } else {
+                        failed += 1
+                        AppLog.error("delete failed", metadata: [
+                            "path": file.path,
+                            "error": error.localizedDescription
+                        ])
+                    }
                 }
             }
-            if failed > 0 {
-                await MainActor.run {
+
+            await MainActor.run {
+                // 刷新空态
+                if scanResults[category]?.items.isEmpty == true {
+                    scanResults[category]?.isCleaned = category != .trash
+                }
+                if removed > 0 && failed == 0 {
+                    celebrationToken += 1
+                }
+                if failed > 0 {
                     alertTitle = "部分删除失败"
                     alertMessage = category == .trash
                         ? "有 \(failed) 个项目无法删除，请检查权限后重试。"

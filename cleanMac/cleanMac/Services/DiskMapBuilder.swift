@@ -13,8 +13,8 @@ struct DiskMapNode: Identifiable, Hashable {
 }
 
 enum DiskMapBuilder {
-    /// 列出目录下的一级子项（按大小降序，可上限）
-    static func children(of path: String, limit: Int = 24) async -> [DiskMapNode] {
+    /// 列出目录下的全部一级子项，按大小降序。
+    static func children(of path: String) async -> [DiskMapNode] {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
@@ -36,7 +36,6 @@ enum DiskMapBuilder {
                 return (attrs?[.size] as? Int64) ?? 0
             }.value
 
-            guard size > 0 else { continue }
             nodes.append(
                 DiskMapNode(
                     id: entry.path,
@@ -47,10 +46,7 @@ enum DiskMapBuilder {
                 )
             )
         }
-        return nodes
-            .sorted { $0.size > $1.size }
-            .prefix(limit)
-            .map { $0 }
+        return nodes.sorted { $0.size > $1.size }
     }
 
     /// 从扫描结果构建首页级地图（类别 → 顶层大项）
@@ -59,7 +55,7 @@ enum DiskMapBuilder {
 
         for category in ScanCategory.allCases {
             guard let result = scanResults[category], !result.items.isEmpty, !result.isCleaned else { continue }
-            let items = result.items.sorted { $0.size > $1.size }.prefix(16)
+            let items = result.items.sorted { $0.size > $1.size }
             let children = items.map { item -> DiskMapNode in
                 DiskMapNode(
                     id: item.path,

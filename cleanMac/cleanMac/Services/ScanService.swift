@@ -250,25 +250,39 @@ final class ScanService: @unchecked Sendable {
         await Task.detached { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
-            
+
             // 扫描常见安装包位置
             let searchPaths = [
                 "\(self.homeDir)/Downloads",
                 "\(self.homeDir)/Desktop",
                 "\(self.homeDir)/Documents",
+                "\(self.homeDir)/Movies",
                 "/Library/InstallerSandboxes",
                 "\(self.homeDir)/Library/Caches"
             ]
-            
-            // 安装包文件扩展名
-            let installerExtensions = ["pkg", "dmg", "mpkg"]
-            
+
+            // 安装包/可安装分发包扩展名（含移动端与 Windows 包）
+            let installerExtensions = [
+                // macOS / Linux
+                "pkg", "dmg", "mpkg", "iso",
+                "deb", "rpm", "appimage",
+                // Windows
+                "exe", "msi", "msix", "appx",
+                // Android / 跨端
+                "apk", "aab", "ipa", "xapk", "apks",
+                // 压缩安装包
+                "zip", "7z", "tar", "gz", "tgz"
+            ]
+
             for path in searchPaths {
                 guard self.fileManager.fileExists(atPath: path) else { continue }
                 items.append(contentsOf: self.scanDirectory(path, extensions: installerExtensions))
             }
-            
-            return items.sorted { $0.size > $1.size }
+
+            var seen = Set<String>()
+            return items
+                .filter { seen.insert($0.path).inserted }
+                .sorted { $0.size > $1.size }
         }.value
     }
     
