@@ -7,27 +7,31 @@ struct XcodeAnalysisView: View {
     @State private var showingDeleteConfirmation = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                pageHeader
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    pageHeader
 
-                if viewModel.isScanning {
-                    scanningState
-                } else if let result = viewModel.result {
-                    summarySection(result)
-                    kindSections(result)
-                } else {
-                    idleState
+                    if viewModel.isScanning {
+                        scanningState
+                            .frame(minHeight: max(320, viewport.size.height - 128))
+                    } else if let result = viewModel.result {
+                        summarySection(result)
+                        kindSections(result)
+                    } else {
+                        idleState
+                            .frame(minHeight: max(320, viewport.size.height - 128))
+                    }
                 }
+                .frame(maxWidth: 920)
+                .padding(.horizontal, 28)
+                .padding(.top, 18)
+                .padding(.bottom, 40)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 920)
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 40)
-            .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.canvas.ignoresSafeArea())
+        .background(Theme.reviewCanvas(.indigo))
         .alert("移到废纸篓", isPresented: $showingDeleteConfirmation, presenting: pendingDeletion) { item in
             Button("取消", role: .cancel) { pendingDeletion = nil }
             Button("移到废纸篓", role: .destructive) {
@@ -83,13 +87,12 @@ struct XcodeAnalysisView: View {
 
             Spacer(minLength: 12)
 
-            DetailTextButton(
-                title: viewModel.isScanning ? "分析中…" : (viewModel.result == nil ? "开始分析" : "重新分析"),
-                systemImage: viewModel.isScanning ? "hourglass" : "sparkle.magnifyingglass"
-            ) {
-                viewModel.scan()
+            if viewModel.result != nil {
+                DetailTextButton(title: "重新分析", systemImage: "sparkle.magnifyingglass") {
+                    viewModel.scan()
+                }
+                .disabled(viewModel.isScanning || viewModel.isDeleting)
             }
-            .disabled(viewModel.isScanning || viewModel.isDeleting)
         }
     }
 

@@ -49,7 +49,7 @@ struct WhitelistView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.canvas.ignoresSafeArea())
+        .background(Theme.reviewCanvas(.green))
         .task {
             guard !appeared else { return }
             appeared = true

@@ -50,7 +50,6 @@ final class DiskMapSession: ObservableObject {
 
 /// 多级磁盘 Treemap 页面：点击块下钻，面包屑返回
 struct DiskMapView: View {
-    @ObservedObject var viewModel: MainViewModel
     @ObservedObject var session: DiskMapSession
 
     @State private var selectedFile: DiskMapNode?
@@ -62,103 +61,102 @@ struct DiskMapView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                breadcrumb
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    if session.root != nil {
+                        breadcrumb
+                    }
 
-                if session.isLoading && session.root == nil {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("正在展开目录…")
+                    if session.isLoading && session.root == nil {
+                        ScanningPlaceholderView(
+                            title: "正在分析磁盘空间…",
+                            subtitle: "可切换其他页面，分析会在后台继续"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: max(320, viewport.size.height - 124))
+                    } else if let current {
+                        statsBar(current)
+
+                        ZStack {
+                            if session.loadingPaths.contains(current.path) {
+                                VStack(spacing: 12) {
+                                    ProgressView()
+                                    Text("正在分析目录…")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text("可以返回上级，分析会在后台继续")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                            } else {
+                                MultiLevelTreemap(node: current) { node in
+                                    drill(into: node)
+                                }
+                                .frame(height: 480)
+                                .id(current.id)
+                                .transition(
+                                    drillForward
+                                        ? .asymmetric(
+                                            insertion: .scale(scale: 0.92).combined(with: .opacity),
+                                            removal: .scale(scale: 1.08).combined(with: .opacity)
+                                        )
+                                        : .asymmetric(
+                                            insertion: .scale(scale: 1.08).combined(with: .opacity),
+                                            removal: .scale(scale: 0.92).combined(with: .opacity)
+                                        )
+                                )
+                            }
+
+                            if current.children.isEmpty && !session.loadingPaths.contains(current.path) {
+                                Text("此节点下无可展示子项")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .frame(height: 480)
+
+                        if let selectedFile {
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc.fill")
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(selectedFile.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .textSelection(.enabled)
+                                    Text(selectedFile.path)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                                Spacer(minLength: 8)
+                                Text(selectedFile.sizeFormatted)
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .monospacedDigit()
+                            }
+                            .padding(14)
+                            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                        }
+
+                        Text("点按色块查看内容 · 横向滚动整张地图查看右侧项目 · 用上方路径返回")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    } else {
+                        emptyState
+                            .frame(minHeight: max(320, viewport.size.height - 124))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 320)
-                } else if let current {
-                    statsBar(current)
-
-                    ZStack {
-                        if session.loadingPaths.contains(current.path) {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                Text("正在分析目录…")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text("可以返回上级，分析会在后台继续")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            MultiLevelTreemap(node: current) { node in
-                                drill(into: node)
-                            }
-                            .frame(height: 480)
-                            .id(current.id)
-                            .transition(
-                                drillForward
-                                    ? .asymmetric(
-                                        insertion: .scale(scale: 0.92).combined(with: .opacity),
-                                        removal: .scale(scale: 1.08).combined(with: .opacity)
-                                    )
-                                    : .asymmetric(
-                                        insertion: .scale(scale: 1.08).combined(with: .opacity),
-                                        removal: .scale(scale: 0.92).combined(with: .opacity)
-                                    )
-                            )
-                        }
-
-                        if current.children.isEmpty && !session.loadingPaths.contains(current.path) {
-                            Text("此节点下无可展示子项")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(height: 480)
-
-                    if let selectedFile {
-                        HStack(spacing: 12) {
-                            Image(systemName: "doc.fill")
-                                .foregroundColor(.accentColor)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(selectedFile.name)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .textSelection(.enabled)
-                                Text(selectedFile.path)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .textSelection(.enabled)
-                            }
-                            Spacer(minLength: 8)
-                            Text(selectedFile.sizeFormatted)
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
-                                .monospacedDigit()
-                        }
-                        .padding(14)
-                        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-                    }
-
-                    Text("点按色块查看内容 · 横向滚动整张地图查看右侧项目 · 用上方路径返回")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    emptyState
                 }
+                .padding(.horizontal, 28)
+                .padding(.top, 18)
+                .padding(.bottom, 40)
+                .frame(maxWidth: 1080)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 1080)
-            .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.canvas.ignoresSafeArea())
+        .background(Theme.reviewCanvas(.purple))
         .onChange(of: current?.id) { _ in selectedFile = nil }
-        .task {
-            guard session.root == nil else { return }
-            await rebuild()
-        }
     }
 
     // MARK: - 页头
@@ -190,13 +188,15 @@ struct DiskMapView: View {
 
             Spacer()
 
-            DetailTextButton(title: "刷新", systemImage: "arrow.clockwise") {
-                Task {
-                    session.clear()
-                    await rebuild()
+            if session.root != nil {
+                DetailTextButton(title: "重新分析", systemImage: "arrow.clockwise") {
+                    Task {
+                        session.clear()
+                        await rebuild()
+                    }
                 }
+                .disabled(session.isLoading)
             }
-            .disabled(session.isLoading)
         }
     }
 
@@ -262,12 +262,32 @@ struct DiskMapView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "square.grid.3x3")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-            Text("请先扫描，或点击刷新")
-                .font(.headline)
+        VStack(spacing: 18) {
+            Image(systemName: "square.grid.3x3.topleft.filled")
+                .font(.system(size: 48))
+                .foregroundStyle(Theme.accentGradient)
+                .frame(width: 100, height: 100)
+                .background(.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 26))
+                .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Text("尚未分析磁盘空间")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text("分析文件与目录的占用情况，生成可逐级浏览的磁盘地图。")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                Task { await rebuild() }
+            } label: {
+                Label("开始分析", systemImage: "sparkle.magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(GradientButtonStyleCompact())
         }
         .frame(maxWidth: .infinity, minHeight: 320)
     }
@@ -282,23 +302,17 @@ struct DiskMapView: View {
                 session.isLoading = !session.loadingPaths.isEmpty
             }
         }
-        if viewModel.hasScanned {
-            let root = await DiskMapBuilder.fromScanResults(viewModel.scanResults)
-            guard requestGeneration == session.generation else { return }
-            session.root = root
-        } else {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let children = await session.children(of: home)
-            guard requestGeneration == session.generation else { return }
-            session.root = DiskMapNode(
-                id: "home",
-                name: "用户目录",
-                path: home,
-                size: children.reduce(0) { $0 + $1.size },
-                isDirectory: true,
-                children: children
-            )
-        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let children = await session.children(of: home)
+        guard requestGeneration == session.generation else { return }
+        session.root = DiskMapNode(
+            id: "home",
+            name: "用户目录",
+            path: home,
+            size: children.reduce(0) { $0 + $1.size },
+            isDirectory: true,
+            children: children
+        )
     }
 
     private func drill(into node: DiskMapNode) {

@@ -51,17 +51,25 @@ class CleanService {
     
     /// 清空废纸篓
     func emptyTrash(items: [FileItem]) async -> EmptyTrashOutcome {
-        var cleanedBytes: Int64 = 0
-        var failedCount = 0
-        for item in items {
-            do {
-                try fileManager.removeItem(at: item.pathURL)
-                cleanedBytes += item.size
-            } catch {
-                failedCount += 1
+        await Task.detached(priority: .utility) {
+            var cleanedBytes: Int64 = 0
+            var failedCount = 0
+            for item in items {
+                guard isDirectTrashEntry(item.path), !UserWhitelist.isWhitelisted(item.path) else {
+                    failedCount += 1
+                    AppLog.warn("trash delete blocked", metadata: ["path": item.path])
+                    continue
+                }
+                do {
+                    try FileManager.default.removeItem(at: URL(fileURLWithPath: item.path))
+                    cleanedBytes += item.size
+                } catch {
+                    failedCount += 1
+                    AppLog.warn("trash delete failed", metadata: ["path": item.path, "error": error.localizedDescription])
+                }
             }
-        }
-        return EmptyTrashOutcome(cleanedBytes: cleanedBytes, failedCount: failedCount)
+            return EmptyTrashOutcome(cleanedBytes: cleanedBytes, failedCount: failedCount)
+        }.value
     }
     
     /// 使用管理员权限清理
@@ -69,4 +77,18 @@ class CleanService {
         let escapedPath = path.replacingOccurrences(of: "\"", with: "\\\"")
         try ShellExecutor.execute("rm -rf \"\(escapedPath)\"", asRoot: true)
     }
+}
+
+/// 只允许删除扫描所得废纸篓根目录下的直接子项，绝不删除废纸篓根目录本身。
+nonisolated private func isDirectTrashEntry(_ path: String) -> Bool {
+    let parent = (SafetyWhitelist.normalizeForCompare(path) as NSString).deletingLastPathComponent
+    let homeTrashPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.Trash"
+    let homeTrash = (homeTrashPath as NSString).standardizingPath
+    if parent == homeTrash { return true }
+
+    let components = parent.split(separator: "/")
+    return components.count == 4
+        && components[0] == "Volumes"
+        && components[2] == ".Trashes"
+        && components[3] == String(getuid())
 }

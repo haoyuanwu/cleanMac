@@ -45,6 +45,23 @@ enum Theme {
         endPoint: .center
     )
 
+    /// 审查工具详情页共用的浅色渐变画布。
+    static func reviewCanvas(_ accent: Color) -> some View {
+        ZStack {
+            canvas
+            LinearGradient(
+                colors: [
+                    accent.opacity(0.18),
+                    Color(red: 0.60, green: 0.67, blue: 0.98).opacity(0.10),
+                    accent.opacity(0.04)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .ignoresSafeArea()
+    }
+
     /// 侧边栏渐变底
     static let sidebarGradient = LinearGradient(
         colors: [sidebarTop, sidebar],
@@ -268,8 +285,11 @@ struct ScanHeroControl: View {
     var storageTotalText: String = ""
     var segments: [Segment] = []
     var cleanableText: String = ""
+    var smartCleanText: String = ""
     var isEnabled: Bool = true
+    var isSmartCleanEnabled: Bool = false
     var action: () -> Void
+    var onSmartClean: (() -> Void)? = nil
     var onSegmentTap: ((Segment) -> Void)? = nil
 
     @State private var isCenterHovered = false
@@ -359,11 +379,38 @@ struct ScanHeroControl: View {
             .animation(Theme.spring, value: isStorageHovered)
 
             VStack(spacing: 6) {
-                Text(titleText)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(titleGradient)
-                    .monospacedDigit()
-                    .animation(Theme.spring, value: titleText)
+                if phase == .finished && hoveredSegment == nil && !isStorageHovered,
+                   let onSmartClean {
+                    Button(action: onSmartClean) {
+                        Label(
+                            isSmartCleanEnabled
+                                ? "智能清理 · 预计可释放 \(smartCleanText)"
+                                : "暂无推荐清理项目",
+                            systemImage: "wand.and.stars"
+                        )
+                        .font(.system(size: 15, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 11)
+                        .background(
+                            Capsule().fill(
+                                isSmartCleanEnabled
+                                    ? AnyShapeStyle(Theme.accentGradient)
+                                    : AnyShapeStyle(Color.secondary.opacity(0.5))
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isSmartCleanEnabled)
+                    .help("查看低风险推荐清理项目")
+                } else {
+                    Text(titleText)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(titleGradient)
+                        .monospacedDigit()
+                        .animation(Theme.spring, value: titleText)
+                }
 
                 Text(subtitleText)
                     .font(.system(size: 12))
@@ -735,10 +782,10 @@ struct ScanHeroControl: View {
             return storageUsedText.isEmpty ? "已使用 \(Int(storageUsed * 100))%" : "已使用 \(storageUsedText)"
         }
         switch phase {
-        case .idle: return "开始扫描"
-        case .scanning: return "正在扫描…"
+        case .idle: return "开始清理扫描"
+        case .scanning: return "正在扫描垃圾…"
         case .finished:
-            return cleanableText.isEmpty ? "重新扫描" : "可清理 \(cleanableText)"
+            return cleanableText.isEmpty ? "重新扫描" : "预计可释放 \(cleanableText)"
         }
     }
 
@@ -751,13 +798,13 @@ struct ScanHeroControl: View {
         }
         switch phase {
         case .idle:
-            return "外环为磁盘占用 · 悬停查看 · 点按扫描"
+            return "扫描缓存、浏览器缓存、日志、应用残留与废纸篓"
         case .scanning:
-            return "全局扫描进行中 · 完成后可再次扫描"
+            return "清理扫描进行中 · 完成后可再次扫描"
         case .finished:
             return showSegments
                 ? "外环为可清理构成 · 悬停查看 · 点按进入"
-                : "再扫一次，刷新占用与可清理"
+                : "再扫一次，更新可清理项目"
         }
     }
 

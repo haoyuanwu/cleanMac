@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 类别详情视图
 struct CategoryDetailView: View {
@@ -12,6 +13,7 @@ struct CategoryDetailView: View {
     @State private var isSearchExpanded = false
     @State private var selectedFiles = Set<FileItem.ID>()
     @State private var showingEmptyTrashConfirmation = false
+    @State private var previewImage: FileItem?
     @State private var appearProgress: CGFloat = 0
     @FocusState private var isSearchFocused: Bool
     
@@ -93,6 +95,12 @@ struct CategoryDetailView: View {
         (result?.items ?? []).filter { selectedFiles.contains($0.id) }
     }
 
+    private var visibleImages: [FileItem] {
+        sortedFiles.filter { file in
+            !file.isDirectory && UTType(filenameExtension: file.pathURL.pathExtension)?.conforms(to: .image) == true
+        }
+    }
+
     private var allVisibleFilesSelected: Bool {
         !sortedFiles.isEmpty && sortedFiles.allSatisfy { selectedFiles.contains($0.id) }
     }
@@ -126,6 +134,9 @@ struct CategoryDetailView: View {
             }
         }
         .navigationTitle("")
+        .sheet(item: $previewImage) { file in
+            ImagePreviewView(files: visibleImages, initialPath: file.path)
+        }
         .onChange(of: result?.items.map(\.id) ?? []) { availableIDs in
             selectedFiles.formIntersection(availableIDs)
         }
@@ -535,7 +546,11 @@ struct CategoryDetailView: View {
                         viewModel.revealInFinder(file)
                     },
                     onOpen: { file in
-                        viewModel.openFile(file)
+                        if visibleImages.contains(where: { $0.path == file.path }) {
+                            previewImage = file
+                        } else {
+                            viewModel.openFile(file)
+                        }
                     }
                 )
                 // 列表底部留白，避免悬浮条盖住最后一行

@@ -3,6 +3,14 @@ import SwiftUI
 /// 概览页：大圆环主交互（存储 / 进度 / 可清理构成）+ 精简存储信息
 struct DashboardView: View {
     @ObservedObject var viewModel: MainViewModel
+    @ObservedObject var duplicateSession: DuplicateScanSession
+    @ObservedObject var xcodeViewModel: XcodeAnalysisViewModel
+    let isDeepSearching: Bool
+    let deepSearchStage: String
+    let onDeepSearch: () -> Void
+    let onCancelDeepSearch: () -> Void
+    let openDuplicates: () -> Void
+    let openXcode: () -> Void
     @State private var appearProgress: CGFloat = 0
 
     var body: some View {
@@ -20,7 +28,12 @@ struct DashboardView: View {
                 bottomPanel
                     .padding(.top, 8)
 
-                if viewModel.hasScanned {
+                if hasDeepResults {
+                    deepResultsSection
+                        .padding(.top, 20)
+                }
+
+                if viewModel.hasOverviewScan {
                     treemapSection
                         .padding(.top, 8)
                 }
@@ -80,7 +93,7 @@ struct DashboardView: View {
                         gradient: Theme.successGradient,
                         compact: true
                     )
-                    if viewModel.hasScanned {
+                    if viewModel.hasOverviewScan {
                         MetricTile(
                             title: "预计可释放",
                             value: viewModel.totalCleanableSizeFormatted,
@@ -110,10 +123,15 @@ struct DashboardView: View {
                 storageUsedText: viewModel.storageInfo?.usedFormatted ?? "",
                 storageTotalText: viewModel.storageInfo?.totalFormatted ?? "",
                 segments: ringSegments,
-                cleanableText: viewModel.hasScanned ? viewModel.totalCleanableSizeFormatted : "",
-                isEnabled: !viewModel.isScanning && !viewModel.isCleaning,
+                cleanableText: viewModel.hasOverviewScan ? viewModel.totalCleanableSizeFormatted : "",
+                smartCleanText: viewModel.smartCleanPlan.totalSizeFormatted,
+                isEnabled: !isDeepSearching && !viewModel.isScanning && !viewModel.isCleaning,
+                isSmartCleanEnabled: !viewModel.smartCleanPlan.isEmpty && !isDeepSearching && !viewModel.isScanning && !viewModel.isCleaning,
                 action: {
                     Task { await viewModel.scanAll() }
+                },
+                onSmartClean: {
+                    viewModel.requestSmartClean()
                 },
                 onSegmentTap: { segment in
                     guard segment.id != "other" else { return }
@@ -126,15 +144,34 @@ struct DashboardView: View {
             )
             .frame(maxWidth: .infinity)
 
-            if viewModel.isScanning {
+            if !isDeepSearching {
+                Button(action: onDeepSearch) {
+                    Label("深度搜索", systemImage: "magnifyingglass.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isScanning || viewModel.isCleaning || duplicateSession.isLoading || xcodeViewModel.isScanning)
+                .help("扫描文件整理、重复文件、应用程序与 Xcode 数据")
+            }
+
+            if isDeepSearching {
+                Label(deepSearchStage, systemImage: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: 360)
+
+                Button("取消深度搜索", action: onCancelDeepSearch)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else if viewModel.isScanning {
                 scanningNote
                     .frame(maxWidth: 360)
 
-                Button("取消扫描") {
-                    viewModel.cancelScanAll()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                Button("取消扫描") { viewModel.cancelScanAll() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         }
     }
@@ -143,16 +180,13 @@ struct DashboardView: View {
     private var bottomPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(viewModel.hasScanned ? "可清理构成 · 与环上扇区对应" : "空间分布（估算）")
+                Text(viewModel.hasOverviewScan ? "垃圾清理结果 · 与环上扇区对应" : "清理扫描范围")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                 Spacer()
-                if viewModel.hasScanned {
-                    smartCleanButton
-                }
             }
 
-            if viewModel.hasScanned {
+            if viewModel.hasOverviewScan {
                 LazyVGrid(columns: [
                     GridItem(.flexible(), spacing: 12),
                     GridItem(.flexible(), spacing: 12),
@@ -174,48 +208,87 @@ struct DashboardView: View {
                         }
                     }
                 }
+
+                if !viewModel.isScanning && !viewModel.overviewScanIsComplete {
+                    Text("当前仅汇总已扫描类别；点按圆环可补齐全部清理扫描结果。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             } else {
                 LazyVGrid(columns: [
                     GridItem(.flexible(), spacing: 12),
                     GridItem(.flexible(), spacing: 12),
                     GridItem(.flexible(), spacing: 12)
                 ], spacing: 10) {
-                    ForEach(viewModel.storageBreakdown.filter { $0.size > 0 }) { cat in
+                    ForEach(ScanCategory.overviewScanCategories) { category in
                         legendCard(
-                            color: cat.color,
-                            name: cat.name,
-                            value: cat.sizeFormatted,
+                            color: category.color,
+                            name: category.rawValue,
+                            value: "待扫描",
                             percent: nil,
                             action: nil
                         )
                     }
                 }
+
+                Text("打开应用仅静默读取磁盘容量。深度搜索可扫描文件整理、重复文件、应用程序与 Xcode 数据；磁盘地图仍在对应模块按需分析。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private var smartCleanButton: some View {
-        let plan = viewModel.smartCleanPlan
-        return Button {
-            viewModel.requestSmartClean()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(plan.isEmpty ? "暂无推荐清理" : "智能清理 \(plan.totalSizeFormatted)")
-                    .font(.system(size: 12, weight: .semibold))
+    private var hasDeepResults: Bool {
+        [.downloads, .largeFiles, .installers, .applications].contains { viewModel.scanResults[$0] != nil }
+            || duplicateSession.hasScanned || xcodeViewModel.result != nil
+    }
+
+    private var deepResultsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("深度搜索结果")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.accentGradient)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 10) {
+                ForEach([ScanCategory.downloads, .largeFiles, .installers, .applications]) { category in
+                    if let result = viewModel.scanResults[category], !result.isScanning {
+                        legendCard(
+                            color: category.color,
+                            name: category.rawValue,
+                            value: result.totalSizeFormatted,
+                            percent: "\(result.itemCount) 项"
+                        ) {
+                            viewModel.selectedCategory = category
+                        }
+                    }
+                }
+
+                if duplicateSession.hasScanned && !duplicateSession.isLoading {
+                    legendCard(
+                        color: .orange,
+                        name: "重复文件",
+                        value: FileSizeFormatter.string(fromByteCount: duplicateSession.totalWasted),
+                        percent: "\(duplicateSession.groups.count) 组冗余",
+                        action: openDuplicates
+                    )
+                }
+
+                if let result = xcodeViewModel.result, !xcodeViewModel.isScanning {
+                    legendCard(
+                        color: .indigo,
+                        name: "Xcode 分析",
+                        value: FileSizeFormatter.string(fromByteCount: result.totalSize),
+                        percent: "\(result.artifacts.count) 项占用",
+                        action: openXcode
+                    )
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .foregroundColor(.white)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(plan.isEmpty ? AnyShapeStyle(Color.secondary.opacity(0.5)) : AnyShapeStyle(Theme.accentGradient))
-            )
+
+            Text("文件整理、应用和 Xcode 显示发现的占用；重复文件显示保留一份后可释放的冗余空间。")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .buttonStyle(.plain)
-        .disabled(plan.isEmpty || viewModel.isScanning || viewModel.isCleaning)
-        .help("仅清理低风险推荐项（缓存/日志等）")
     }
 
     // MARK: - Treemap
@@ -308,7 +381,7 @@ struct DashboardView: View {
     }
 
     private var ringSegments: [ScanHeroControl.Segment] {
-        let results = ScanCategory.allCases.compactMap { category -> (ScanCategory, ScanResult)? in
+        let results = ScanCategory.overviewScanCategories.compactMap { category -> (ScanCategory, ScanResult)? in
             guard let result = viewModel.scanResults[category], result.totalSize > 0, !result.isCleaned else {
                 return nil
             }
@@ -365,26 +438,23 @@ struct DashboardView: View {
         if viewModel.isScanning {
             return .scanning(progress: viewModel.overallProgress)
         }
-        if viewModel.hasScanned {
+        if viewModel.hasOverviewScan {
             return .finished
         }
         return .idle
     }
 
-    private var cleanableShare: Double {
-        guard let storage = viewModel.storageInfo, storage.usedBytes > 0 else { return 0 }
-        return Double(viewModel.totalCleanableSize) / Double(storage.usedBytes)
-    }
-
     private var cleanableShareText: String {
-        String(format: "%.1f%%", cleanableShare * 100)
+        guard let storage = viewModel.storageInfo, storage.usedBytes > 0 else { return "0.0%" }
+        let share = Double(viewModel.totalCleanableSize) / Double(storage.usedBytes)
+        return String(format: "%.1f%%", share * 100)
     }
 
     private var scanningNote: some View {
         HStack(spacing: 8) {
             ProgressView()
                 .scaleEffect(0.6)
-            Text("全局扫描进行中，暂不可再次扫描")
+            Text("正在扫描垃圾清理项目，暂不可再次扫描")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -397,9 +467,10 @@ struct DashboardView: View {
     }
 
     private var segmentedProgress: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(ScanCategory.allCases.enumerated()), id: \.element) { index, category in
-                let threshold = Double(index + 1) / Double(ScanCategory.allCases.count)
+        let categories = isDeepSearching ? ScanCategory.allCases : ScanCategory.overviewScanCategories
+        return HStack(spacing: 4) {
+            ForEach(Array(categories.enumerated()), id: \.element) { index, category in
+                let threshold = Double(index + 1) / Double(categories.count)
                 Capsule()
                     .fill(viewModel.overallProgress >= threshold
                           ? category.color

@@ -28,7 +28,7 @@ struct UninstallLeftoverDialog: View {
                 Text(estimates.count == 1 ? "卸载 \(estimates[0].appName)？" : "卸载 \(estimates.count) 个应用？")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
 
-                Text("应用将移到废纸篓。下方为检测到的相关残留，默认不勾选，请按需删除。")
+                Text("应用将移到废纸篓。已推荐勾选检测到的相关残留，可按需取消。")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineSpacing(3)

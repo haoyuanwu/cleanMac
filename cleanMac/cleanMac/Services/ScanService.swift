@@ -23,7 +23,18 @@ final class ScanService: @unchecked Sendable {
             ]
             
             for path in paths {
-                items.append(contentsOf: self.scanCacheEntries(in: path, minSize: 1024 * 100))
+                let entries = self.scanCacheEntries(in: path, minSize: 1024 * 100)
+                if path == "\(self.homeDir)/Library/Caches" {
+                    // 浏览器缓存在独立类别统计，避免概览重复计算同一目录。
+                    let browserRoots: Set<String> = [
+                        "com.apple.safari", "com.apple.webkit.webcontent",
+                        "google", "com.google.chrome", "mozilla", "org.mozilla.firefox",
+                        "microsoft edge", "com.microsoft.edgemac"
+                    ]
+                    items.append(contentsOf: entries.filter { !browserRoots.contains($0.name.lowercased()) })
+                } else {
+                    items.append(contentsOf: entries)
+                }
             }
             return items.sorted { $0.size > $1.size }
         }.value

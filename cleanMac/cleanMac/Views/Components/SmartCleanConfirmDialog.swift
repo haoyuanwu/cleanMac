@@ -1,9 +1,11 @@
 import SwiftUI
+import AppKit
 
-/// 智能清理确认：展示将清理的条目，用户同意后执行
+/// 智能清理确认：完整展示清理清单，确认前允许逐项调整。
 struct SmartCleanConfirmDialog: View {
     let plan: SmartCleanPlan
     @Binding var selectedPaths: Set<String>
+    let onAddToWhitelist: (FileItem) -> Void
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
@@ -15,128 +17,192 @@ struct SmartCleanConfirmDialog: View {
         selectedItems.reduce(0) { $0 + $1.size }
     }
 
+    private var allSelected: Binding<Bool> {
+        Binding(
+            get: { !plan.items.isEmpty && plan.items.allSatisfy { selectedPaths.contains($0.path) } },
+            set: { selectedPaths = $0 ? Set(plan.items.map(\.path)) : [] }
+        )
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("智能清理确认")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                Text("以下为低风险推荐项（缓存、日志等）。默认全部勾选，取消不需要的项后再清理。")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineSpacing(3)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(24)
 
-            HStack(spacing: 10) {
-                summaryChip(title: "推荐项", value: "\(plan.items.count) 项", color: Theme.accentGradient)
-                summaryChip(title: "合计", value: plan.totalSizeFormatted, color: Theme.warmGradient)
-                summaryChip(title: "将清理", value: FileSizeFormatter.string(fromByteCount: selectedSize), color: Theme.successGradient)
-            }
+            Divider()
 
-            // 分类摘要
-            HStack(spacing: 8) {
-                ForEach(plan.categorySummary.indices, id: \.self) { index in
-                    let entry = plan.categorySummary[index]
-                    Text("\(entry.category.rawValue) \(entry.count)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(entry.category.color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(entry.category.color.opacity(0.12)))
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 10) {
+                    summaryTile("推荐项目", value: "\(plan.items.count) 项", tint: .blue)
+                    summaryTile("已选项目", value: "\(selectedItems.count) 项", tint: .orange)
+                    summaryTile("预计清理", value: FileSizeFormatter.string(fromByteCount: selectedSize), tint: .green)
                 }
-            }
 
-            HStack {
-                Toggle(isOn: Binding(
-                    get: {
-                        !plan.items.isEmpty && plan.items.allSatisfy { selectedPaths.contains($0.path) }
-                    },
-                    set: { on in
-                        if on {
-                            selectedPaths = Set(plan.items.map(\.path))
-                        } else {
-                            selectedPaths.removeAll()
+                if !plan.categorySummary.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(plan.categorySummary.indices, id: \.self) { index in
+                                let entry = plan.categorySummary[index]
+                                Text("\(entry.category.rawValue) · \(entry.count)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(entry.category.color)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(entry.category.color.opacity(0.11), in: Capsule())
+                            }
                         }
                     }
-                )) {
-                    Text("全选")
-                        .font(.system(size: 12, weight: .medium))
                 }
-                .toggleStyle(.checkbox)
 
-                Spacer()
-                Text("共 \(plan.items.count) 条 · 仅展示前 40 条明细")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                HStack {
+                    Toggle("全选推荐项", isOn: allSelected)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 12, weight: .semibold))
+                    Spacer()
+                    Text("已选 \(selectedItems.count) / \(plan.items.count)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 18)
 
             ScrollView {
-                VStack(spacing: 6) {
-                    ForEach(Array(plan.items.prefix(40))) { item in
-                        row(item)
+                if plan.items.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 26))
+                            .foregroundColor(.green)
+                        Text("没有待清理项目")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("推荐项已加入白名单或不再需要清理。")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
                     }
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(plan.items) { item in
+                            row(item)
+                        }
+                    }
+                    .padding(16)
                 }
-                .padding(.vertical, 2)
             }
-            .frame(maxHeight: 260)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surfaceSunk.opacity(0.55))
+
+            Divider()
+            footer
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
+        }
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .elevatedShadow()
+        .onExitCommand(perform: onCancel)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 13))
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("智能清理确认")
+                    .font(.system(size: 21, weight: .bold, design: .rounded))
+                Text("确认将清理的缓存、日志等推荐项目。取消勾选即可保留对应内容。")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.07), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("关闭")
+            .accessibilityLabel("关闭智能清理确认")
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("将清理 \(selectedItems.count) 项 · \(FileSizeFormatter.string(fromByteCount: selectedSize))")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.secondary)
 
             HStack(spacing: 12) {
-                Button("取消") {
-                    onCancel()
+                Button(action: onCancel) {
+                    Text("取消")
+                        .frame(maxWidth: .infinity, minHeight: 38)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
 
-                Button {
-                    onConfirm()
-                } label: {
-                    Text(selectedPaths.isEmpty
-                         ? "请选择要清理的项"
-                         : "清理所选 \(selectedItems.count) 项 · \(FileSizeFormatter.string(fromByteCount: selectedSize))")
+                Button(action: onConfirm) {
+                    Label("清理所选项目", systemImage: "sparkles")
                         .font(.system(size: 13, weight: .semibold))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, minHeight: 38)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-                .disabled(selectedPaths.isEmpty)
+                .buttonStyle(GradientButtonStyleCompact())
+                .opacity(selectedItems.isEmpty ? 0.5 : 1)
+                .disabled(selectedItems.isEmpty)
+                .keyboardShortcut(.defaultAction)
             }
+            .controlSize(.large)
         }
-        .padding(22)
-        .frame(width: 520)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Theme.surfaceRaised)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-        )
-        .elevatedShadow()
+    }
+
+    private func summaryTile(_ title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundColor(tint)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func row(_ item: FileItem) -> some View {
-        Toggle(isOn: Binding(
-            get: { selectedPaths.contains(item.path) },
-            set: { on in
-                if on {
-                    selectedPaths.insert(item.path)
-                } else {
-                    selectedPaths.remove(item.path)
-                }
+        let isSelected = selectedPaths.contains(item.path)
+        return Button {
+            if isSelected {
+                selectedPaths.remove(item.path)
+            } else {
+                selectedPaths.insert(item.path)
             }
-        )) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(riskColor(item.riskLevel))
-                    .frame(width: 8, height: 8)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 17))
+                    .foregroundColor(isSelected ? .blue : .secondary)
 
-                VStack(alignment: .leading, spacing: 2) {
+                Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
+                    .foregroundColor(.blue)
+                    .frame(width: 32, height: 32)
+                    .background(Color.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(item.name)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     Text(item.path)
                         .font(.system(size: 10))
@@ -147,54 +213,41 @@ struct SmartCleanConfirmDialog: View {
                 }
 
                 Spacer(minLength: 8)
-
-                Text(item.riskLevel.displayName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
-
                 Text(item.sizeFormatted)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .frame(width: 72, alignment: .trailing)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                isSelected ? Color.blue.opacity(0.07) : Theme.surfaceRaised,
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(item.name)，\(isSelected ? "已选中" : "未选中")")
+        .accessibilityHint("点击切换是否清理")
+        .contextMenu {
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+            } label: {
+                Label("在 Finder 中显示", systemImage: "folder")
+            }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.path, forType: .string)
+            } label: {
+                Label("复制路径", systemImage: "doc.on.doc")
+            }
+            Divider()
+            Button {
+                onAddToWhitelist(item)
+            } label: {
+                Label("加入白名单", systemImage: "shield.lefthalf.filled")
             }
         }
-        .toggleStyle(.checkbox)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
-        )
-    }
-
-    private func riskColor(_ risk: FileRiskLevel) -> Color {
-        switch risk {
-        case .safe: return .green
-        case .caution: return .orange
-        case .sensitive: return .red
-        case .blocked: return .gray
-        }
-    }
-
-    private func summaryChip(title: String, value: String, color: LinearGradient) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-            Text(value)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(color)
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.accentGradientSoft.opacity(0.45))
-        )
     }
 }

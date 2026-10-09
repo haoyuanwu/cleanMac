@@ -12,6 +12,11 @@ enum ScanCategory: String, CaseIterable, Identifiable {
     case largeFiles = "大文件"
     case applications = "应用程序"
     case installers = "安装包"
+
+    /// 概览只汇总垃圾清理类；文件整理与应用管理在各自页面按需扫描。
+    static let overviewScanCategories: [ScanCategory] = [
+        .systemCache, .browserCache, .logFiles, .appLeftover, .trash
+    ]
     
     var id: String { rawValue }
 

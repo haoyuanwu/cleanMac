@@ -9,8 +9,11 @@ struct SidebarView: View {
     
     enum SidebarTab: String, CaseIterable, Hashable, Identifiable {
         case dashboard = "概览"
+        case deviceInfo = "设备信息"
         case category = "分类"
         case diskMap = "磁盘地图"
+        case duplicates = "重复文件"
+        case timeline = "占用变化"
         case whitelist = "白名单"
         case xcode = "Xcode 分析"
         case settings = "设置"
@@ -20,7 +23,7 @@ struct SidebarView: View {
     
     var body: some View {
         List {
-            Section("主页") {
+            Section("总览") {
                 SidebarRow(
                     title: "概览",
                     icon: "SidebarOverview",
@@ -33,71 +36,46 @@ struct SidebarView: View {
                         selectedTab = .dashboard
                     }
                 }
-            }
 
-            Section("清理类别") {
-                ForEach(ScanCategory.allCases) { category in
-                    CategorySidebarRow(
-                        category: category,
-                        result: viewModel.scanResults[category],
-                        isSelected: selectedTab == .category && viewModel.selectedCategory == category
-                    )
-                    .onTapGesture {
-                        withAnimation(Theme.spring) {
-                            viewModel.selectedCategory = category
-                            selectedTab = .category
-                        }
-                    }
-                    .contextMenu {
-                        Button {
-                            Task { await viewModel.scanCategory(category) }
-                        } label: {
-                            Label("扫描", systemImage: "magnifyingglass")
-                        }
-                        .disabled(viewModel.scanResults[category]?.isScanning == true)
-
-                        Button {
-                            if category == .trash {
-                                viewModel.selectedCategory = .trash
-                                selectedTab = .category
-                            } else if category == .applications {
-                                viewModel.requestDeleteFiles(viewModel.scanResults[category]?.items ?? [], from: category)
-                            } else {
-                                Task { await viewModel.cleanCategory(category) }
-                            }
-                        } label: {
-                            Label(category == .trash ? "查看并清空废纸篓" : (category == .applications ? "卸载" : "清理"), systemImage: "trash")
-                        }
-                        .disabled(viewModel.isScanning || viewModel.scanResults[category]?.items.isEmpty != false)
+                SidebarRow(
+                    title: "设备信息",
+                    icon: "SidebarInfo",
+                    iconColor: .cyan,
+                    isSelected: selectedTab == .deviceInfo
+                )
+                .onTapGesture {
+                    withAnimation(Theme.spring) {
+                        selectedTab = .deviceInfo
                     }
                 }
             }
 
-            Section("审查工具") {
-                SidebarRow(
-                    title: "磁盘地图",
-                    icon: "SFSymbol:square.grid.3x3.topleft.filled",
-                    iconColor: .purple,
-                    isSelected: selectedTab == .diskMap,
-                    isScanning: diskMapIsLoading
-                )
-                .onTapGesture {
-                    withAnimation(Theme.spring) {
-                        selectedTab = .diskMap
-                    }
+            Section("垃圾清理") {
+                ForEach([ScanCategory.systemCache, .browserCache, .logFiles, .appLeftover, .trash]) { category in
+                    categoryRow(category)
+                }
+            }
+
+            Section("文件整理") {
+                ForEach([ScanCategory.downloads, .largeFiles, .installers]) { category in
+                    categoryRow(category)
                 }
 
                 SidebarRow(
-                    title: "白名单",
-                    icon: "SFSymbol:shield.lefthalf.filled",
-                    iconColor: .green,
-                    isSelected: selectedTab == .whitelist
+                    title: "重复文件",
+                    icon: "SFSymbol:doc.on.doc.fill",
+                    iconColor: .orange,
+                    isSelected: selectedTab == .duplicates
                 )
                 .onTapGesture {
                     withAnimation(Theme.spring) {
-                        selectedTab = .whitelist
+                        selectedTab = .duplicates
                     }
                 }
+            }
+
+            Section("应用与开发") {
+                categoryRow(.applications)
 
                 SidebarRow(
                     title: "Xcode 分析",
@@ -113,7 +91,46 @@ struct SidebarView: View {
                 }
             }
 
-            Section("偏好设置") {
+            Section("磁盘分析") {
+                SidebarRow(
+                    title: "磁盘地图",
+                    icon: "SFSymbol:square.grid.3x3.topleft.filled",
+                    iconColor: .purple,
+                    isSelected: selectedTab == .diskMap,
+                    isScanning: diskMapIsLoading
+                )
+                .onTapGesture {
+                    withAnimation(Theme.spring) {
+                        selectedTab = .diskMap
+                    }
+                }
+
+                SidebarRow(
+                    title: "占用变化",
+                    icon: "SFSymbol:chart.line.uptrend.xyaxis",
+                    iconColor: .blue,
+                    isSelected: selectedTab == .timeline
+                )
+                .onTapGesture {
+                    withAnimation(Theme.spring) {
+                        selectedTab = .timeline
+                    }
+                }
+            }
+
+            Section("偏好与保护") {
+                SidebarRow(
+                    title: "白名单",
+                    icon: "SFSymbol:shield.lefthalf.filled",
+                    iconColor: .green,
+                    isSelected: selectedTab == .whitelist
+                )
+                .onTapGesture {
+                    withAnimation(Theme.spring) {
+                        selectedTab = .whitelist
+                    }
+                }
+
                 SidebarRow(
                     title: "设置",
                     icon: "SidebarSettings",
@@ -143,6 +160,42 @@ struct SidebarView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.sidebarGradient.ignoresSafeArea())
         .frame(minWidth: 200, idealWidth: 232, maxWidth: 260)
+    }
+
+    private func categoryRow(_ category: ScanCategory) -> some View {
+        CategorySidebarRow(
+            category: category,
+            result: viewModel.scanResults[category],
+            isSelected: selectedTab == .category && viewModel.selectedCategory == category
+        )
+        .onTapGesture {
+            withAnimation(Theme.spring) {
+                viewModel.selectedCategory = category
+                selectedTab = .category
+            }
+        }
+        .contextMenu {
+            Button {
+                Task { await viewModel.scanCategory(category) }
+            } label: {
+                Label("扫描", systemImage: "magnifyingglass")
+            }
+            .disabled(viewModel.scanResults[category]?.isScanning == true)
+
+            Button {
+                if category == .trash {
+                    viewModel.selectedCategory = .trash
+                    selectedTab = .category
+                } else if category == .applications {
+                    viewModel.requestDeleteFiles(viewModel.scanResults[category]?.items ?? [], from: category)
+                } else {
+                    Task { await viewModel.cleanCategory(category) }
+                }
+            } label: {
+                Label(category == .trash ? "查看并清空废纸篓" : (category == .applications ? "卸载" : "清理"), systemImage: "trash")
+            }
+            .disabled(viewModel.isScanning || viewModel.scanResults[category]?.items.isEmpty != false)
+        }
     }
 }
 

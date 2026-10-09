@@ -46,7 +46,7 @@ final class SystemInfoService: @unchecked Sendable {
         }
         
         let usedBytes = max(0, totalBytes - freeBytes)
-        let volumeName = run("diskutil info / | grep 'Volume Name' | sed 's/.*:\\s*//'").trimmingCharacters(in: .whitespaces)
+        let volumeName = (try? homeDir.resourceValues(forKeys: [.volumeNameKey]))?.volumeName ?? ""
         
         return StorageInfo(
             totalBytes: totalBytes,

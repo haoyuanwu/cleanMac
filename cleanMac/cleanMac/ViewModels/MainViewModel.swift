@@ -5,10 +5,19 @@ import Combine
 /// 主视图模型
 @MainActor
 class MainViewModel: ObservableObject {
+    enum ScanScope {
+        case overview
+        case deep
+
+        var categories: [ScanCategory] {
+            switch self {
+            case .overview: return ScanCategory.overviewScanCategories
+            case .deep: return ScanCategory.allCases
+            }
+        }
+    }
     // MARK: - Published Properties
-    @Published var systemInfo: SystemInfo?
     @Published var storageInfo: StorageInfo?
-    @Published var storageBreakdown: [StorageCategory] = []
     
     @Published var scanResults: [ScanCategory: ScanResult] = [:]
     @Published var selectedCategory: ScanCategory?
@@ -33,6 +42,7 @@ class MainViewModel: ObservableObject {
     @Published var showingSmartCleanDialog = false
     /// 清空废纸篓过程占位（阻断交互）
     @Published var isEmptyingTrash = false
+    @Published private(set) var isSmartCleaning = false
     /// 删除成功烟花庆祝
     @Published var celebrationToken = 0
 
@@ -95,7 +105,10 @@ class MainViewModel: ObservableObject {
     // MARK: - 计算属性
     
     var totalCleanableSize: Int64 {
-        scanResults.values.reduce(0) { $0 + $1.totalSize }
+        ScanCategory.overviewScanCategories.reduce(0) { total, category in
+            guard let result = scanResults[category], !result.isCleaned else { return total }
+            return total + result.totalSize
+        }
     }
     
     var totalCleanableSizeFormatted: String {
@@ -103,7 +116,10 @@ class MainViewModel: ObservableObject {
     }
     
     var totalCleanedSize: Int64 {
-        scanResults.values.filter { $0.isCleaned }.reduce(0) { $0 + $1.totalSize }
+        ScanCategory.overviewScanCategories.reduce(0) { total, category in
+            guard let result = scanResults[category], result.isCleaned else { return total }
+            return total + result.totalSize
+        }
     }
     
     var totalCleanedSizeFormatted: String {
@@ -111,7 +127,10 @@ class MainViewModel: ObservableObject {
     }
     
     var totalFileCount: Int {
-        scanResults.values.reduce(0) { $0 + $1.itemCount }
+        ScanCategory.overviewScanCategories.reduce(0) { total, category in
+            guard let result = scanResults[category], !result.isCleaned else { return total }
+            return total + result.itemCount
+        }
     }
     
     var isScanning: Bool {
@@ -133,32 +152,36 @@ class MainViewModel: ObservableObject {
     var hasScanned: Bool {
         !scanResults.isEmpty
     }
+
+    var hasOverviewScan: Bool {
+        ScanCategory.overviewScanCategories.contains { scanResults[$0] != nil }
+    }
+
+    var overviewScanIsComplete: Bool {
+        ScanCategory.overviewScanCategories.allSatisfy {
+            guard let result = scanResults[$0] else { return false }
+            return !result.isScanning
+        }
+    }
     
     // MARK: - Init
     
-    /// 加载系统信息（非自动扫描）
-    func loadSystemInfo() async {
+    /// 启动时只读取卷容量与空闲空间，不遍历用户文件或受保护目录。
+    func loadStartupSnapshot() async {
         isLoadingSystemInfo = true
-        
         let service = systemInfoService
-        
-        // 依次在后台加载，避免阻塞主线程
-        let info = await Task.detached(operation: { service.getSystemInfo() }).value
-        self.systemInfo = info
-        
         let storage = await Task.detached(operation: { service.getStorageInfo() }).value
         self.storageInfo = storage
-        
-        let breakdown = await Task.detached { service.getStorageBreakdown(usedBytes: storage.usedBytes) }.value
-        self.storageBreakdown = breakdown
-        
+
+        if storage.totalBytes > 0 { StorageTimeline.record(storage: storage) }
+
         isLoadingSystemInfo = false
     }
     
     // MARK: - Actions
     
-    /// 全盘扫描（全局扫描未结束前不可再次发起；单类扫描不受此限制）
-    func scanAll() async {
+    /// 概览扫描仅覆盖清理项目；深度搜索额外覆盖文件整理和应用程序。
+    func scanAll(scope: ScanScope = .overview) async {
         guard !isScanning else { return }
 
         scanState = .scanning
@@ -167,7 +190,7 @@ class MainViewModel: ObservableObject {
 
         scanAllTask = Task { [weak self] in
             guard let self else { return }
-            let categories = ScanCategory.allCases
+            let categories = scope.categories
             let total = Double(categories.count)
 
             for (index, category) in categories.enumerated() {
@@ -192,7 +215,7 @@ class MainViewModel: ObservableObject {
         await scanAllTask?.value
     }
 
-    /// 取消全局扫描
+    /// 取消概览清理扫描
     func cancelScanAll() {
         scanAllTask?.cancel()
         scanAllTask = nil
@@ -243,7 +266,9 @@ class MainViewModel: ObservableObject {
 
     /// 智能清理推荐集
     var smartCleanPlan: SmartCleanPlan {
-        SmartCleanPlan.build(from: scanResults)
+        SmartCleanPlan.build(from: scanResults.filter {
+            ScanCategory.overviewScanCategories.contains($0.key)
+        })
     }
 
     /// 打开智能清理确认弹窗（先看清单）
@@ -266,13 +291,30 @@ class MainViewModel: ObservableObject {
         showingSmartCleanDialog = false
     }
 
+    func addSmartCleanItemToWhitelist(_ item: FileItem) {
+        guard showingSmartCleanDialog, smartCleanDraft?.items.contains(where: { $0.path == item.path }) == true else { return }
+        UserWhitelist.add(item.path)
+        let protectedPath = SafetyWhitelist.normalizeForCompare(item.path)
+        for category in Array(scanResults.keys) {
+            scanResults[category]?.items.removeAll {
+                let path = SafetyWhitelist.normalizeForCompare($0.path)
+                return path == protectedPath || path.hasPrefix(protectedPath + "/")
+            }
+        }
+        smartCleanDraft = smartCleanPlan
+        let availablePaths = Set(smartCleanDraft?.items.map(\.path) ?? [])
+        smartCleanSelectedPaths.formIntersection(availablePaths)
+    }
+
     /// 确认后清理勾选项（仅 safe 级）
     func confirmSmartClean() {
         guard let plan = smartCleanDraft else {
             cancelSmartClean()
             return
         }
-        let selected = plan.items.filter { smartCleanSelectedPaths.contains($0.path) }
+        let selected = plan.items.filter {
+            smartCleanSelectedPaths.contains($0.path) && !UserWhitelist.isWhitelisted($0.path)
+        }
         cancelSmartClean()
 
         guard !selected.isEmpty else {
@@ -289,6 +331,7 @@ class MainViewModel: ObservableObject {
 
     /// 执行清理（用户已确认的列表）
     private func runSmartClean(items: [FileItem], plan: SmartCleanPlan) async {
+        isSmartCleaning = true
         scanState = .cleaning
         var totalCleaned: Int64 = 0
 
@@ -322,6 +365,7 @@ class MainViewModel: ObservableObject {
         }
 
         scanState = .completed
+        isSmartCleaning = false
         if totalCleaned > 0 {
             celebrationToken += 1
         }
@@ -413,6 +457,7 @@ class MainViewModel: ObservableObject {
             "failed": "\(outcome.failedCount)",
             "bytes": "\(outcome.cleanedBytes)"
         ])
+        await TrashMonitor.shared.refresh(force: true)
     }
     
     /// 请求删除单个文件（显示确认对话框）
@@ -448,8 +493,7 @@ class MainViewModel: ObservableObject {
             }
             await MainActor.run {
                 self.uninstallEstimates = estimates
-                // 默认不勾选残留
-                self.selectedLeftoverPaths = []
+                self.selectedLeftoverPaths = Set(estimates.flatMap(\.leftovers).map(\.path))
                 self.showingUninstallDialog = true
             }
         }
@@ -591,9 +635,10 @@ class MainViewModel: ObservableObject {
 
         scanResults[.applications]?.items.removeAll { movedPaths.contains($0.path) }
 
+        let failedCount = files.count - movedPaths.count
         // 清理勾选的残留
         var leftoverNote = ""
-        if !leftoverPaths.isEmpty {
+        if failedCount == 0 && !leftoverPaths.isEmpty {
             let outcome = await Task.detached {
                 AppLeftoverScanner.removeLeftovers(leftoverPaths)
             }.value
@@ -602,7 +647,6 @@ class MainViewModel: ObservableObject {
                 : ""
         }
 
-        let failedCount = files.count - movedPaths.count
         if failedCount == 0 {
             alertTitle = "卸载完成"
             alertMessage = "已将 \(files.count) 个应用移到废纸篓。\(leftoverNote)"

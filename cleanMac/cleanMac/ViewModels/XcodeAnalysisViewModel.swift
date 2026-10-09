@@ -26,6 +26,11 @@ final class XcodeAnalysisViewModel: ObservableObject {
         }
     }
 
+    func scanAndWait() async {
+        scan()
+        await scanTask?.value
+    }
+
     func cancel() {
         scanTask?.cancel()
         scanTask = nil

@@ -9,7 +9,7 @@ enum DeleteDryRun {
     }
 
     /// 校验是否允许删除；写入日志
-    static func validate(path: String, context: String = "delete") -> Decision {
+    nonisolated static func validate(path: String, context: String = "delete") -> Decision {
         let normalized = SafetyWhitelist.normalizeForCompare(path)
 
         if normalized.isEmpty {
@@ -36,7 +36,7 @@ enum DeleteDryRun {
         return Decision(path: path, allowed: true, reason: "ok")
     }
 
-    static func validate(items: [FileItem], context: String = "batch") -> (allowed: [FileItem], blocked: [(FileItem, String)]) {
+    nonisolated static func validate(items: [FileItem], context: String = "batch") -> (allowed: [FileItem], blocked: [(FileItem, String)]) {
         var allowed: [FileItem] = []
         var blocked: [(FileItem, String)] = []
         for item in items {
@@ -55,7 +55,7 @@ enum DeleteDryRun {
     }
 
     /// 是否落在常见可清理位置
-    private static func isLikelyDeletable(_ path: String) -> Bool {
+    private nonisolated static func isLikelyDeletable(_ path: String) -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let allowedPrefixes = [
             home + "/Library",
