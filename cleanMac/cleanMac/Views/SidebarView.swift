@@ -201,6 +201,7 @@ struct SidebarView: View {
 
 // MARK: - 通用侧边栏行
 struct SidebarRow: View {
+    @Environment(\.controlActiveState) private var controlActiveState
     let title: String
     let icon: String
     let iconColor: Color
@@ -242,6 +243,7 @@ struct SidebarRow: View {
 
             Text(title)
                 .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(controlActiveState == .inactive ? .secondary : .primary)
 
             Spacer()
         }
@@ -258,6 +260,7 @@ struct SidebarRow: View {
 
 // MARK: - 类别侧边栏行
 struct CategorySidebarRow: View {
+    @Environment(\.controlActiveState) private var controlActiveState
     let category: ScanCategory
     let result: ScanResult?
     let isSelected: Bool
@@ -290,7 +293,9 @@ struct CategorySidebarRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(category.rawValue)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                    .foregroundColor(isSelected ? category.color : .primary)
+                    .foregroundColor(controlActiveState == .inactive
+                                     ? .secondary
+                                     : (isSelected ? category.color : .primary))
 
                 if let result = result {
                     Text(result.isScanning
@@ -309,7 +314,7 @@ struct CategorySidebarRow: View {
             if result?.isScanning == true {
                 Text("扫描中")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(category.color)
+                    .foregroundColor(controlActiveState == .inactive ? .secondary : category.color)
             } else if result?.error != nil {
                 Image("SidebarWarning")
                     .renderingMode(.template)
@@ -331,7 +336,7 @@ struct CategorySidebarRow: View {
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .foregroundColor(category.color)
+                    .foregroundColor(controlActiveState == .inactive ? .secondary : category.color)
                     .background(category.color.opacity(0.15))
                     .clipShape(Capsule())
             }

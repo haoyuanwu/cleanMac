@@ -60,11 +60,14 @@ enum AppLeftoverScanner {
         var candidates: [(path: String, name: String)] = []
 
         func add(_ relative: String, label: String? = nil) {
-            let full = home.appendingPathComponent(relative).path
+            let full = home.appendingPathComponent(relative).standardizedFileURL.path
+            let library = home.appendingPathComponent("Library", isDirectory: true).standardizedFileURL.path
+            guard full.hasPrefix(library + "/") else { return }
             candidates.append((full, label ?? (relative as NSString).lastPathComponent))
         }
 
-        if let bundleId, !bundleId.isEmpty {
+        if let bundleId,
+           bundleId.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]*$", options: .regularExpression) != nil {
             add("Library/Application Support/\(bundleId)")
             add("Library/Containers/\(bundleId)")
             add("Library/Caches/\(bundleId)")
@@ -127,7 +130,11 @@ enum AppLeftoverScanner {
         var removed = 0
         var failed = 0
         for path in paths {
-            guard SafetyWhitelist.canDelete(path: path) else {
+            let library = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library").standardizedFileURL.path
+            let resolvedParent = URL(fileURLWithPath: path).deletingLastPathComponent().resolvingSymlinksInPath().path
+            guard path.hasPrefix(library + "/"),
+                  resolvedParent.hasPrefix(library + "/"),
+                  DeleteDryRun.validate(path: path, context: "app-leftover").allowed else {
                 failed += 1
                 continue
             }

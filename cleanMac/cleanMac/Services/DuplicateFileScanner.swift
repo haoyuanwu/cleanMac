@@ -123,13 +123,15 @@ enum DuplicateFileScanner {
     }
 
     /// 删除重复（保留 keep，删除其余）
-    nonisolated static func removeDuplicates(keep: FileItem, remove: [FileItem]) -> (removed: Int, failed: Int) {
+    nonisolated static func removeDuplicates(keep: FileItem, remove: [FileItem]) -> (removed: Int, failed: Int, details: [String]) {
         var removed = 0
         var failed = 0
+        var details: [String] = []
         for file in remove where file.path != keep.path {
             let decision = DeleteDryRun.validate(path: file.path, context: "dedupe")
             guard decision.allowed else {
                 failed += 1
+                details.append("\(file.path)：\(decision.reason)")
                 continue
             }
             do {
@@ -138,9 +140,10 @@ enum DuplicateFileScanner {
                 AppLog.info("dedupe removed", metadata: ["path": file.path])
             } catch {
                 failed += 1
+                details.append("\(file.path)：\(error.localizedDescription)")
                 AppLog.error("dedupe failed", metadata: ["path": file.path, "error": error.localizedDescription])
             }
         }
-        return (removed, failed)
+        return (removed, failed, details)
     }
 }

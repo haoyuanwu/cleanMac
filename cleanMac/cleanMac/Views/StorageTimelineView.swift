@@ -67,27 +67,62 @@ struct StorageTimelineView: View {
     }
 
     private var periodPicker: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.accentGradient)
+
                 Text("统计范围")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("\(selectedPeriod.bucketDescription)汇总 · \(periodSnapshots.count) 条记录")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+
+                Spacer()
+
+                Text("\(periodSnapshots.count) 条记录")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.accentGradient)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Theme.accentGradientSoft, in: Capsule())
             }
-            Spacer(minLength: 12)
-            Picker("统计范围", selection: $selectedPeriod) {
+
+            HStack(spacing: 4) {
                 ForEach(StoragePeriod.allCases) { period in
-                    Text(period.rawValue).tag(period)
+                    let isSelected = selectedPeriod == period
+                    Button {
+                        selectedPeriod = period
+                    } label: {
+                        VStack(spacing: 3) {
+                            Text(period.rawValue)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            Text(period.bucketDescription)
+                                .font(.system(size: 10, weight: .medium))
+                                .opacity(isSelected ? 0.85 : 0.65)
+                        }
+                        .foregroundColor(isSelected ? .white : .primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            isSelected
+                                ? AnyShapeStyle(Theme.accentGradient)
+                                : AnyShapeStyle(Color.clear),
+                            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(period.rawValue)，\(period.bucketDescription)")
+                    .accessibilityValue(isSelected ? "已选中" : "")
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 340)
+            .padding(4)
+            .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
-        .padding(14)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.cardStroke))
+        .padding(16)
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.cardStroke))
+        .cardShadow()
+        .animation(Theme.spring, value: selectedPeriod)
     }
 
     private var summary: some View {

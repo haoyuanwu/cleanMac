@@ -3,60 +3,90 @@ import Foundation
 struct EmptyTrashOutcome: Sendable {
     let cleanedBytes: Int64
     let failedCount: Int
+    let failureDetails: [String]
+}
+
+struct CleanOutcome: Sendable {
+    let cleanedBytes: Int64
+    let removedPaths: Set<String>
+    let failures: [String: String]
 }
 
 /// 文件清理服务
 class CleanService {
     private let fileManager = FileManager.default
     
-    /// 清理指定文件列表（删除前 dry-run 二次校验）
-    func clean(items: [FileItem], category: ScanCategory) async throws -> Int64 {
-        var totalCleaned: Int64 = 0
-        let validated = DeleteDryRun.validate(items: items, context: "clean-\(category.rawValue)")
+    /// 同一批次的受保护缓存和日志只触发一次管理员授权。
+    func clean(items: [FileItem], category: ScanCategory) async -> CleanOutcome {
+        await cleanBatch([(category, items)])
+    }
+
+    func cleanBatch(_ groups: [(ScanCategory, [FileItem])]) async -> CleanOutcome {
+        var seen = Set<String>()
+        let items = groups.flatMap { $0.1 }.filter { seen.insert($0.path).inserted }
+        return await Task.detached(priority: .userInitiated) {
+            CleanService.performClean(items)
+        }.value
+    }
+
+    private nonisolated static func performClean(_ items: [FileItem]) -> CleanOutcome {
+        let fileManager = FileManager.default
+        let validated = DeleteDryRun.validate(items: items, context: "clean-batch")
+        var removedPaths = Set<String>()
+        var failures = Dictionary(uniqueKeysWithValues: validated.blocked.map { ($0.0.path, $0.1) })
+        var privilegedPaths: [String] = []
 
         for item in validated.allowed {
             do {
-                if category.requiresPrivileges && (item.path.hasPrefix("/Library") || item.path.hasPrefix("/System")) {
-                    try cleanWithPrivileges(path: item.path)
-                } else {
-                    try fileManager.removeItem(atPath: item.path)
-                }
-                totalCleaned += item.size
-                AppLog.info("cleaned", metadata: ["path": item.path, "size": "\(item.size)"])
+                try fileManager.removeItem(atPath: item.path)
+                removedPaths.insert(item.path)
             } catch {
-                AppLog.error("clean failed", metadata: ["path": item.path, "error": error.localizedDescription])
+                if !fileManager.fileExists(atPath: item.path) {
+                    removedPaths.insert(item.path)
+                } else if isRemovalPermissionError(error), PrivilegedRemovalService.isSupported(item.path) {
+                    privilegedPaths.append(item.path)
+                } else {
+                    failures[item.path] = error.localizedDescription
+                }
             }
         }
-
-        for (item, reason) in validated.blocked {
-            AppLog.warn("clean skipped", metadata: ["path": item.path, "reason": reason])
+        if !privilegedPaths.isEmpty {
+            let elevated = PrivilegedRemovalService.remove(paths: privilegedPaths)
+            removedPaths.formUnion(elevated.removedPaths)
+            failures.merge(elevated.failures) { _, new in new }
         }
-
-        return totalCleaned
+        for item in items {
+            if let reason = failures[item.path] {
+                AppLog.error("clean failed", metadata: ["path": item.path, "error": reason])
+            } else if removedPaths.contains(item.path) {
+                AppLog.info("cleaned", metadata: ["path": item.path, "size": "\(item.size)"])
+            }
+        }
+        return CleanOutcome(
+            cleanedBytes: items.filter { removedPaths.contains($0.path) }.reduce(0) { $0 + $1.size },
+            removedPaths: removedPaths,
+            failures: failures
+        )
     }
     
     /// 清理单个文件
-    func cleanSingle(item: FileItem, requiresPrivileges: Bool = false) throws {
+    func cleanSingle(item: FileItem) throws {
         let decision = DeleteDryRun.validate(path: item.path, context: "cleanSingle")
         guard decision.allowed else {
-            AppLog.warn("cleanSingle blocked", metadata: ["path": item.path, "reason": decision.reason])
-            return
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: decision.reason])
         }
-        if requiresPrivileges {
-            try cleanWithPrivileges(path: item.path)
-        } else {
-            try fileManager.removeItem(atPath: item.path)
-        }
+        try fileManager.removeItem(atPath: item.path)
     }
     
     /// 清空废纸篓
     func emptyTrash(items: [FileItem]) async -> EmptyTrashOutcome {
         await Task.detached(priority: .utility) {
             var cleanedBytes: Int64 = 0
-            var failedCount = 0
+            var failures: [String: String] = [:]
+            var privilegedPaths: [String] = []
             for item in items {
                 guard isDirectTrashEntry(item.path), !UserWhitelist.isWhitelisted(item.path) else {
-                    failedCount += 1
+                    failures[item.path] = "路径不在可清理的废纸篓范围，或已加入白名单。"
                     AppLog.warn("trash delete blocked", metadata: ["path": item.path])
                     continue
                 }
@@ -64,30 +94,124 @@ class CleanService {
                     try FileManager.default.removeItem(at: URL(fileURLWithPath: item.path))
                     cleanedBytes += item.size
                 } catch {
-                    failedCount += 1
-                    AppLog.warn("trash delete failed", metadata: ["path": item.path, "error": error.localizedDescription])
+                    if !FileManager.default.fileExists(atPath: item.path) {
+                        cleanedBytes += item.size
+                    } else if isRemovalPermissionError(error) {
+                        privilegedPaths.append(item.path)
+                    } else {
+                        failures[item.path] = error.localizedDescription
+                    }
                 }
             }
-            return EmptyTrashOutcome(cleanedBytes: cleanedBytes, failedCount: failedCount)
+            if !privilegedPaths.isEmpty {
+                let elevated = PrivilegedRemovalService.remove(paths: privilegedPaths)
+                cleanedBytes += items.filter { elevated.removedPaths.contains($0.path) }
+                    .reduce(0) { $0 + $1.size }
+                failures.merge(elevated.failures) { _, new in new }
+            }
+            for (path, reason) in failures {
+                AppLog.warn("trash delete failed", metadata: ["path": path, "error": reason])
+            }
+            return EmptyTrashOutcome(
+                cleanedBytes: cleanedBytes,
+                failedCount: failures.count,
+                failureDetails: failures.sorted { $0.key < $1.key }
+                    .map { "\($0.key)：\($0.value)" }
+            )
         }.value
     }
     
-    /// 使用管理员权限清理
-    private func cleanWithPrivileges(path: String) throws {
-        let escapedPath = path.replacingOccurrences(of: "\"", with: "\\\"")
-        try ShellExecutor.execute("rm -rf \"\(escapedPath)\"", asRoot: true)
+}
+
+nonisolated func isRemovalPermissionError(_ error: Error) -> Bool {
+    let ns = error as NSError
+    if (ns.domain == NSCocoaErrorDomain && [257, 513].contains(ns.code))
+        || (ns.domain == NSPOSIXErrorDomain && [1, 13].contains(ns.code))
+    { return true }
+    if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+        return isRemovalPermissionError(underlying)
+    }
+    let message = ns.localizedDescription.lowercased()
+    return ["permission", "not permitted", "access denied", "权限", "不允许访问"]
+        .contains { message.contains($0) }
+}
+
+enum PrivilegedRemovalService {
+    struct Outcome: Sendable {
+        let removedPaths: Set<String>
+        let failures: [String: String]
+    }
+
+    /// 仅允许扫描器展示的系统缓存、日志和当前用户废纸篓的直接子项。
+    nonisolated static func isSupported(_ path: String) -> Bool {
+        isDirectTrashEntry(path) || PrivilegedTrashService.isSupportedItem(path)
+    }
+
+    nonisolated static func remove(paths: [String]) -> Outcome {
+        let fm = FileManager.default
+        var failures: [String: String] = [:]
+        let accepted = Set(paths).filter { path in
+            let allowed = isSupported(path) && DeleteDryRun.validate(path: path, context: "privileged-clean").allowed
+            if !allowed { failures[path] = "路径不在可提权清理范围。" }
+            return allowed
+        }
+        guard !accepted.isEmpty else { return Outcome(removedPaths: [], failures: failures) }
+
+        let script = """
+        on run argv
+            set commandText to "set -f; "
+            repeat with sourcePath in argv
+                set commandText to commandText & "/bin/rm -rf " & quoted form of sourcePath & " 2>&1; "
+            end repeat
+            set commandText to commandText & "/usr/bin/true"
+            do shell script commandText with administrator privileges
+        end run
+        """
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script] + accepted.sorted()
+        process.standardOutput = output
+        process.standardError = output
+        var detail: String?
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let message, !message.isEmpty {
+                detail = String(message.prefix(300))
+            } else if process.terminationStatus != 0 {
+                detail = "管理员授权未完成。"
+            }
+        } catch {
+            detail = error.localizedDescription
+        }
+
+        var removed = Set<String>()
+        for path in accepted {
+            if fm.fileExists(atPath: path) {
+                failures[path] = detail ?? "管理员授权后仍未能删除。"
+            } else {
+                removed.insert(path)
+            }
+        }
+        return Outcome(removedPaths: removed, failures: failures)
     }
 }
 
 /// 只允许删除扫描所得废纸篓根目录下的直接子项，绝不删除废纸篓根目录本身。
-nonisolated private func isDirectTrashEntry(_ path: String) -> Bool {
-    let parent = (SafetyWhitelist.normalizeForCompare(path) as NSString).deletingLastPathComponent
+nonisolated func isDirectTrashEntry(_ path: String) -> Bool {
+    let source = URL(fileURLWithPath: path).standardizedFileURL
+    let parent = source.deletingLastPathComponent().path
+    let resolvedParent = source.deletingLastPathComponent().resolvingSymlinksInPath().path
     let homeTrashPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.Trash"
     let homeTrash = (homeTrashPath as NSString).standardizingPath
-    if parent == homeTrash { return true }
+    if parent == homeTrash { return resolvedParent == homeTrash }
 
     let components = parent.split(separator: "/")
-    return components.count == 4
+    return resolvedParent == parent
+        && components.count == 4
         && components[0] == "Volumes"
         && components[2] == ".Trashes"
         && components[3] == String(getuid())

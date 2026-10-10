@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var selectedTab: SidebarView.SidebarTab = .dashboard
     @State private var isDeepSearching = false
     @State private var deepSearchStage = ""
+    @State private var deepSearchStep = 0
+    @State private var hasCompletedDeepSearch = false
     @State private var deepSearchTask: Task<Void, Never>?
 
     var body: some View {
@@ -38,6 +40,8 @@ struct ContentView: View {
                             xcodeViewModel: xcodeAnalysisViewModel,
                             isDeepSearching: isDeepSearching,
                             deepSearchStage: deepSearchStage,
+                            deepSearchStep: deepSearchStep,
+                            hasCompletedDeepSearch: hasCompletedDeepSearch,
                             onDeepSearch: startDeepSearch,
                             onCancelDeepSearch: cancelDeepSearch,
                             openDuplicates: { selectedTab = .duplicates },
@@ -69,7 +73,7 @@ struct ContentView: View {
                     }
                 }
 
-                // 居中模态：卸载残留 / 删除确认 / 提示
+                // 居中模态：卸载残留 / 提示
                 modalLayer
 
                 // 删除成功：Vortex 撒花 × 2
@@ -82,6 +86,15 @@ struct ContentView: View {
         .navigationTitle("cleanMac")
         .overlay {
             ZStack {
+            if viewModel.showingDeleteConfirmation, let request = viewModel.deleteRequest {
+                TrashConfirmationOverlay(
+                    request: request,
+                    onConfirm: { viewModel.confirmDelete() },
+                    onCancel: { viewModel.cancelDelete() }
+                )
+                .transition(.opacity)
+                .zIndex(110)
+            }
             if viewModel.showingSmartCleanDialog {
                 GeometryReader { geometry in
                     ZStack {
@@ -163,20 +176,25 @@ struct ContentView: View {
         guard !isDeepSearching, !viewModel.isScanning, !viewModel.isCleaning,
               !duplicateScanSession.isLoading, !xcodeAnalysisViewModel.isScanning else { return }
         isDeepSearching = true
+        deepSearchStep = 0
         deepSearchStage = "正在扫描清理、文件整理与应用项目…"
         deepSearchTask = Task {
             await viewModel.scanAll(scope: .deep)
             guard !Task.isCancelled else { return }
 
+            deepSearchStep = 1
             deepSearchStage = "正在查找重复文件…"
             await duplicateScanSession.scan()
             guard !Task.isCancelled else { return }
 
+            deepSearchStep = 2
             deepSearchStage = "正在分析 Xcode 数据…"
             await xcodeAnalysisViewModel.scanAndWait()
             guard !Task.isCancelled else { return }
 
+            hasCompletedDeepSearch = true
             isDeepSearching = false
+            deepSearchStep = 0
             deepSearchStage = ""
             deepSearchTask = nil
         }
@@ -189,6 +207,7 @@ struct ContentView: View {
         duplicateScanSession.cancel()
         xcodeAnalysisViewModel.cancel()
         isDeepSearching = false
+        deepSearchStep = 0
         deepSearchStage = ""
     }
 
@@ -207,21 +226,6 @@ struct ContentView: View {
             )
         }
         .zIndex(20)
-
-        ModalHostView(
-            isPresented: viewModel.showingDeleteConfirmation,
-            onDismiss: { viewModel.cancelDelete() }
-        ) {
-            ModalDialogView(
-                title: viewModel.deleteRequest?.actionTitle ?? "确认操作",
-                message: viewModel.deleteRequest?.message ?? "",
-                confirmTitle: viewModel.deleteRequest?.actionTitle ?? "确定",
-                isDestructive: true,
-                onConfirm: { viewModel.confirmDelete() },
-                onCancel: { viewModel.cancelDelete() }
-            )
-        }
-        .zIndex(10)
 
         ModalHostView(
             isPresented: viewModel.showingAlert,

@@ -282,21 +282,29 @@ struct MenuBarStatusView: View {
         VStack(spacing: 9) {
             HStack(spacing: 8) {
                 Button {
-                    AppActionCoordinator.shared.showMainWindow { openWindow(id: "main") }
+                    NSApplication.shared.terminate(nil)
                 } label: {
-                    Label("打开 cleanMac", systemImage: "macwindow")
-                        .frame(maxWidth: .infinity)
+                    Label("退出 App", systemImage: "power")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.cardStroke))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .help("退出 cleanMac")
 
                 Button {
                     AppActionCoordinator.shared.requestOverviewScan()
                     AppActionCoordinator.shared.showMainWindow { openWindow(id: "main") }
                 } label: {
-                    Label("清理扫描", systemImage: "magnifyingglass")
-                        .frame(maxWidth: .infinity)
+                    Label("扫描清理", systemImage: "magnifyingglass")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 9))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .help("打开 cleanMac 并扫描清理项目")
             }
 
             if let status {

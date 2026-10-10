@@ -162,14 +162,6 @@ struct FileListView: View {
             }
         }
         
-        // 显示简介（单选）
-        if count == 1 {
-            Divider()
-            Button { revealInfoPanel(for: file) } label: {
-                Label("显示简介", systemImage: "info.circle")
-            }
-        }
-
         // 白名单
         Divider()
         if UserWhitelist.isWhitelisted(file.path) {
@@ -205,19 +197,6 @@ struct FileListView: View {
     private func copyToPasteboard(_ texts: [String]) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(texts.joined(separator: "\n"), forType: .string)
-    }
-    
-    /// 打开 Finder 文件简介面板
-    private func revealInfoPanel(for file: FileItem) {
-        let script = """
-        tell application "Finder"
-            reveal POSIX file "\(file.path)"
-            activate
-        end tell
-        """
-        if let appleScript = NSAppleScript(source: script) {
-            appleScript.executeAndReturnError(nil)
-        }
     }
 }
 

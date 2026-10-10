@@ -3,7 +3,6 @@ import AppKit
 
 /// 与扫描、清理相关的系统权限入口。
 struct SettingsView: View {
-    @State private var canReadTrash: Bool?
     @State private var isHistoryExpanded = false
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
@@ -30,7 +29,7 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("系统权限", subtitle: "扫描和清理所需的访问权限由 macOS 管理。")
+                    sectionHeader("系统权限", subtitle: "仅在扫描提示无法读取受保护内容时检查。")
                     permissionsCard
                 }
 
@@ -50,12 +49,6 @@ struct SettingsView: View {
         }
         .navigationTitle("")
         .background(Theme.reviewCanvas(.blue))
-        .task {
-            await refreshTrashAccess()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshTrashAccess() }
-        }
     }
 
     private var settingsColumns: [GridItem] {
@@ -211,43 +204,11 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 PermissionRow(
                     icon: "internaldrive.fill", tint: .blue,
-                    title: "完全磁盘访问权限",
-                    detail: "读取废纸篓、受保护的缓存和应用数据。",
-                    instruction: "在系统设置中开启后，重启应用再扫描。",
-                    buttonTitle: "打开授权页面", status: trashAccessBadge
-                ) { openPrivacySettings(fullDiskAccess: true) }
-                permissionDivider
-                PermissionRow(
-                    icon: "folder.fill", tint: .green,
-                    title: "文件与文件夹",
-                    detail: "扫描桌面、文稿、下载及外置磁盘。",
-                    instruction: "在「隐私与安全性 → 文件与文件夹」中检查访问开关。",
-                    buttonTitle: "打开系统设置"
-                ) { openPrivacySettings() }
-                permissionDivider
-                PermissionRow(
-                    icon: "square.stack.3d.up.fill", tint: .purple,
-                    title: "其他应用数据",
-                    detail: "扫描浏览器缓存和应用残留。",
-                    instruction: "访问其他应用容器时，macOS 可能单独请求授权。",
-                    buttonTitle: "打开系统设置"
-                ) { openPrivacySettings() }
-                permissionDivider
-                PermissionRow(
-                    icon: "app.fill", tint: .orange,
-                    title: "应用管理",
-                    detail: "允许 cleanMac 将其他应用移到废纸篓。",
-                    instruction: "授权后返回应用，可继续此前的卸载操作。",
-                    buttonTitle: "打开授权页面"
-                ) { openPrivacySettings(appManagement: true) }
-                permissionDivider
-                PermissionRow(
-                    icon: "arrow.up.right.square", tint: .cyan,
-                    title: "自动化",
-                    detail: "通过 Finder 显示所选文件及其简介。",
-                    instruction: "在「隐私与安全性 → 自动化」中允许控制 Finder。",
-                    buttonTitle: "打开系统设置"
-                ) { openPrivacySettings() }
+                    title: "完全磁盘访问",
+                    detail: "部分废纸篓位置及受保护的应用数据可能需要此权限。",
+                    instruction: "仅在扫描提示无法读取时开启；开启后重启 cleanMac 再扫描。",
+                    buttonTitle: "打开完全磁盘访问设置"
+                ) { openFullDiskAccessSettings() }
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "lock.shield.fill")
@@ -262,10 +223,6 @@ struct SettingsView: View {
                 .padding(.top, 12)
             }
         }
-    }
-
-    private var permissionDivider: some View {
-        Divider().padding(.leading, 48)
     }
 
     private var logCard: some View {
@@ -327,26 +284,6 @@ struct SettingsView: View {
         }
     }
 
-    private var trashAccessBadge: AnyView? {
-        switch canReadTrash {
-        case true:
-            return AnyView(
-                StatusBadge(text: "废纸篓可读", color: .green, icon: "checkmark.circle.fill")
-            )
-        case false:
-            return AnyView(
-                StatusBadge(text: "废纸篓不可读", color: .orange, icon: "exclamationmark.triangle.fill")
-            )
-        case nil:
-            return AnyView(
-                HStack(spacing: 6) {
-                    ProgressView().scaleEffect(0.5)
-                    Text("检查中…").font(.caption).foregroundColor(.secondary)
-                }
-            )
-        }
-    }
-
     // MARK: - 关于应用
     private var aboutAppCard: some View {
         settingsCard {
@@ -389,25 +326,12 @@ struct SettingsView: View {
         )
     }
 
-    private func refreshTrashAccess() async {
-        let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash").path
-        let readable = await Task.detached(priority: .utility) {
-            (try? FileManager.default.contentsOfDirectory(atPath: path)) != nil
-        }.value
-        canReadTrash = readable
-    }
-
-    private func openPrivacySettings(fullDiskAccess: Bool = false, appManagement: Bool = false) {
-        if appManagement {
-            _ = PrivacySettingsOpener.openAppManagement()
-            return
-        }
+    private func openFullDiskAccessSettings() {
         let base = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
-        let suffix: String? = fullDiskAccess ? "Privacy_AllFiles" : nil
-        let destination = suffix.map { base + "?" + $0 } ?? base
+        let destination = base + "?Privacy_AllFiles"
         guard let url = URL(string: destination) else { return }
         let legacyBase = "x-apple.systempreferences:com.apple.preference.security"
-        let legacyDestination = suffix.map { legacyBase + "?" + $0 } ?? legacyBase
+        let legacyDestination = legacyBase + "?Privacy_AllFiles"
         if !NSWorkspace.shared.open(url), let fallback = URL(string: legacyDestination) {
             NSWorkspace.shared.open(fallback)
         }
@@ -422,7 +346,6 @@ private struct PermissionRow: View {
     let detail: String
     let instruction: String
     let buttonTitle: String
-    var status: AnyView? = nil
     let action: () -> Void
 
     var body: some View {
@@ -437,13 +360,8 @@ private struct PermissionRow: View {
                 )
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                    if let status {
-                        status
-                    }
-                }
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
                 Text(detail)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)

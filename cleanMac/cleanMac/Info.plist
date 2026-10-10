@@ -6,8 +6,6 @@
 	<string>需要读取已安装应用的信息，以识别已卸载应用的残留文件夹。</string>
 	<key>NSAppDataUsageDescription</key>
 	<string>需要读取浏览器缓存和已卸载应用留下的数据目录。</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>需要通过 Finder 显示所选文件及其简介。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>需要读取蓝牙控制器状态，以及已配对和已连接设备的信息，以在设备信息页面展示。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

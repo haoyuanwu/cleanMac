@@ -49,6 +49,8 @@ struct DuplicateFilesView: View {
     @State private var keepPaths: [String: String] = [:]
     @State private var expandedGroupIDs = Set<String>()
     @State private var appearProgress: CGFloat = 0
+    @State private var showingDeleteError = false
+    @State private var deleteErrorMessage = ""
 
     private var totalWasted: Int64 {
         session.totalWasted
@@ -108,6 +110,11 @@ struct DuplicateFilesView: View {
         .background(Theme.canvas.ignoresSafeArea())
         .onAppear {
             withAnimation(Theme.easeSlow) { appearProgress = 1 }
+        }
+        .alert("部分删除失败", isPresented: $showingDeleteError) {
+            Button("知道了", role: .cancel) { }
+        } message: {
+            Text(deleteErrorMessage)
         }
     }
 
@@ -429,5 +436,9 @@ struct DuplicateFilesView: View {
             "failed": "\(outcome.failed)"
         ])
         await scan()
+        if outcome.failed > 0 {
+            deleteErrorMessage = "\(outcome.failed) 个副本未能删除：\n" + outcome.details.prefix(3).joined(separator: "\n")
+            showingDeleteError = true
+        }
     }
 }

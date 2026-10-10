@@ -4,7 +4,7 @@ import Lottie
 /// 智能清理执行期间的全屏状态占位，阻止用户在清理过程中操作其他页面。
 struct SmartCleanCleaningOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private static let animation = LottieAnimation.asset("ScanningFiles")
+    private static let animation = LottieAnimation.asset("SmartCleaning")
 
     var body: some View {
         ZStack {
@@ -22,9 +22,9 @@ struct SmartCleanCleaningOverlay: View {
                             .resizable()
                             .looping()
                     } else {
-                        Image(systemName: "sparkles")
+                        Image(systemName: "checkmark.shield")
                             .font(.system(size: 58, weight: .light))
-                            .foregroundStyle(Theme.warmGradient)
+                            .foregroundStyle(Theme.accentGradient)
                     }
                 }
                 .frame(width: 240, height: 220)

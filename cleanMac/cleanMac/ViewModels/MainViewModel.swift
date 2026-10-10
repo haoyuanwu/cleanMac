@@ -23,6 +23,7 @@ class MainViewModel: ObservableObject {
     @Published var selectedCategory: ScanCategory?
     @Published var scanState: ScanState = .idle
     @Published var overallProgress: Double = 0
+    @Published private(set) var lastCompletedScanScope: ScanScope = .overview
     @Published var showingAlert = false
     @Published var alertMessage = ""
     @Published var alertTitle = ""
@@ -59,6 +60,10 @@ class MainViewModel: ObservableObject {
             || message.contains("doesn’t exist")
             || message.contains("no such file")
             || message.contains("not found")
+    }
+
+    private func isPermissionError(_ error: Error) -> Bool {
+        isRemovalPermissionError(error)
     }
 
     struct DeleteRequest: Identifiable, Equatable {
@@ -180,7 +185,7 @@ class MainViewModel: ObservableObject {
     
     // MARK: - Actions
     
-    /// 概览扫描仅覆盖清理项目；深度搜索额外覆盖文件整理和应用程序。
+    /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
     func scanAll(scope: ScanScope = .overview) async {
         guard !isScanning else { return }
 
@@ -209,6 +214,7 @@ class MainViewModel: ObservableObject {
 
             await MainActor.run {
                 self.scanState = .completed
+                self.lastCompletedScanScope = scope
                 AppLog.info("scanAll finished")
             }
         }
@@ -350,20 +356,9 @@ class MainViewModel: ObservableObject {
             grouped[category, default: []].append(item)
         }
 
-        for (category, group) in grouped {
-            do {
-                let cleaned = try await cleanService.clean(items: group, category: category)
-                totalCleaned += cleaned
-                scanResults[category]?.items.removeAll { item in
-                    group.contains { $0.path == item.path }
-                }
-                if scanResults[category]?.items.isEmpty == true {
-                    scanResults[category]?.isCleaned = true
-                }
-            } catch {
-                // 继续其他类别
-            }
-        }
+        let outcome = await cleanService.cleanBatch(grouped.map { ($0.key, $0.value) })
+        totalCleaned = outcome.cleanedBytes
+        applyCleanOutcome(outcome)
 
         // 即使清理项目很少，也让全屏动画至少完整展示一小段时间，避免一闪而过。
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -373,11 +368,11 @@ class MainViewModel: ObservableObject {
 
         scanState = .completed
         isSmartCleaning = false
-        if totalCleaned > 0 {
+        if totalCleaned > 0 && outcome.failures.isEmpty {
             celebrationToken += 1
         }
-        alertTitle = "智能清理完成"
-        alertMessage = "已清理 \(FileSizeFormatter.string(fromByteCount: totalCleaned)) 空间（\(items.count) 项）。"
+        alertTitle = outcome.failures.isEmpty ? "智能清理完成" : "部分清理失败"
+        alertMessage = cleanOutcomeMessage(outcome)
         showingAlert = true
     }
     
@@ -388,48 +383,55 @@ class MainViewModel: ObservableObject {
             requestDeleteFiles(result.items, from: .applications)
             return
         }
+        if category == .logFiles {
+            requestDeleteFiles(result.items, from: .logFiles)
+            return
+        }
         
         scanState = .cleaning
         
-        do {
-            let cleaned = try await cleanService.clean(items: result.items, category: category)
-            scanResults[category]?.isCleaned = true
-            scanResults[category]?.items = []
-            
-            alertTitle = "清理完成"
-            alertMessage = "已清理 \(FileSizeFormatter.string(fromByteCount: cleaned)) 空间"
-            showingAlert = true
-            scanState = .completed
-        } catch {
-            scanState = .error(error.localizedDescription)
-            alertTitle = "清理失败"
-            alertMessage = error.localizedDescription
-            showingAlert = true
-        }
+        let outcome = await cleanService.clean(items: result.items, category: category)
+        applyCleanOutcome(outcome)
+        alertTitle = outcome.failures.isEmpty ? "清理完成" : "部分清理失败"
+        alertMessage = cleanOutcomeMessage(outcome)
+        showingAlert = true
+        scanState = .completed
     }
     
     /// 清理所有已扫描的类别
     func cleanAll() async {
         scanState = .cleaning
         
-        var totalCleaned: Int64 = 0
-        
-        for (category, result) in scanResults where category != .applications && !result.items.isEmpty && !result.isCleaned {
-            do {
-                let cleaned = try await cleanService.clean(items: result.items, category: category)
-                scanResults[category]?.isCleaned = true
-                scanResults[category]?.items = []
-                totalCleaned += cleaned
-            } catch {
-                print("Failed to clean \(category.rawValue): \(error)")
-            }
+        let groups = scanResults.compactMap { category, result -> (ScanCategory, [FileItem])? in
+            guard category != .applications, !result.items.isEmpty, !result.isCleaned else { return nil }
+            return (category, result.items)
         }
-        
-        alertTitle = "清理完成"
-        alertMessage = "已清理 \(FileSizeFormatter.string(fromByteCount: totalCleaned)) 空间"
+        let outcome = await cleanService.cleanBatch(groups)
+        applyCleanOutcome(outcome)
+        alertTitle = outcome.failures.isEmpty ? "清理完成" : "部分清理失败"
+        alertMessage = cleanOutcomeMessage(outcome)
         showingAlert = true
         
         scanState = .completed
+    }
+
+    private func applyCleanOutcome(_ outcome: CleanOutcome) {
+        for category in Array(scanResults.keys) {
+            scanResults[category]?.items.removeAll { outcome.removedPaths.contains($0.path) }
+            if scanResults[category]?.items.isEmpty == true {
+                scanResults[category]?.isCleaned = true
+            }
+        }
+    }
+
+    private func cleanOutcomeMessage(_ outcome: CleanOutcome) -> String {
+        var message = "已清理 \(outcome.removedPaths.count) 项，释放 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes)) 空间。"
+        if !outcome.failures.isEmpty {
+            let details = outcome.failures.sorted { $0.key < $1.key }.prefix(3)
+                .map { "\($0.key)：\($0.value)" }.joined(separator: "\n")
+            message += "\n\(outcome.failures.count) 项未能清理：\n\(details)"
+        }
+        return message
     }
     
     /// 清空废纸篓
@@ -456,9 +458,15 @@ class MainViewModel: ObservableObject {
         isEmptyingTrash = false
 
         alertTitle = outcome.failedCount == 0 && rescan.error == nil ? "废纸篓已清空" : "部分清空失败"
-        alertMessage = outcome.failedCount == 0 && rescan.error == nil
-            ? "已清理 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes)) 空间"
-            : "\(outcome.failedCount) 个项目未能删除，请检查权限后重新扫描。"
+        if outcome.failedCount == 0, rescan.error == nil {
+            alertMessage = "已清理 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes)) 空间"
+        } else if outcome.failedCount == 0 {
+            alertMessage = rescan.error ?? "废纸篓重新扫描失败。"
+        } else {
+            alertMessage = "\(outcome.failedCount) 个项目未能删除。\n"
+                + outcome.failureDetails.prefix(3).joined(separator: "\n")
+                + (rescan.error.map { "\n\($0)" } ?? "")
+        }
         showingAlert = true
         AppLog.info("emptyTrash finished", metadata: [
             "failed": "\(outcome.failedCount)",
@@ -553,53 +561,105 @@ class MainViewModel: ObservableObject {
 
         Task {
             let fileManager = FileManager.default
-            var failed = 0
+            var failed = validated.blocked.count
             var removed = 0
+            var failureDetails = validated.blocked.map { file, reason in
+                "\(file.path)：\(reason)"
+            }
+            var privilegedFiles: [FileItem] = []
+            var privilegedTrashDeletionFiles: [FileItem] = []
             for file in files {
+                var didRemove = false
+                var failureMessage: String?
                 do {
                     if category == .trash {
                         try fileManager.removeItem(at: file.pathURL)
                     } else {
                         try fileManager.trashItem(at: file.pathURL, resultingItemURL: nil)
                     }
-                    removed += 1
-                    AppLog.info("deleted", metadata: ["path": file.path])
-                    await MainActor.run {
-                        scanResults[category]?.items.removeAll { $0.path == file.path }
-                    }
+                    didRemove = true
                 } catch {
                     if isFileGoneError(error) {
-                        // 已被删除：静默从列表移除，不报错
-                        removed += 1
+                        didRemove = true
                         AppLog.info("delete skip already gone", metadata: ["path": file.path])
-                        await MainActor.run {
-                            scanResults[category]?.items.removeAll { $0.path == file.path }
-                        }
+                    } else if [.logFiles, .systemCache].contains(category), isPermissionError(error),
+                              PrivilegedTrashService.isSupportedItem(file.path) {
+                        privilegedFiles.append(file)
+                        continue
+                    } else if category == .trash, isPermissionError(error),
+                              isDirectTrashEntry(file.path) {
+                        privilegedTrashDeletionFiles.append(file)
+                        continue
+                    } else {
+                        failureMessage = error.localizedDescription
+                    }
+                }
+
+                if didRemove {
+                    removed += 1
+                    AppLog.info("deleted", metadata: ["path": file.path])
+                    scanResults[category]?.items.removeAll { $0.path == file.path }
+                } else {
+                    failed += 1
+                    let detail = failureMessage ?? "未知错误"
+                    failureDetails.append("\(file.name)：\(detail)")
+                    AppLog.error("delete failed", metadata: ["path": file.path, "error": detail])
+                }
+            }
+
+            if !privilegedFiles.isEmpty {
+                let paths = privilegedFiles.map(\.path)
+                let outcomes = await Task.detached(priority: .userInitiated) {
+                    PrivilegedTrashService.moveToTrash(paths: paths)
+                }.value
+                for file in privilegedFiles {
+                    let outcome = outcomes[file.path]
+                    if outcome?.succeeded == true {
+                        removed += 1
+                        AppLog.info("deleted", metadata: ["path": file.path])
+                        scanResults[category]?.items.removeAll { $0.path == file.path }
                     } else {
                         failed += 1
-                        AppLog.error("delete failed", metadata: [
-                            "path": file.path,
-                            "error": error.localizedDescription
-                        ])
+                        let detail = outcome?.message ?? "管理员授权后仍未能移动项目。"
+                        failureDetails.append("\(file.name)：\(detail)")
+                        AppLog.error("delete failed", metadata: ["path": file.path, "error": detail])
                     }
                 }
             }
 
-            await MainActor.run {
-                // 刷新空态
-                if scanResults[category]?.items.isEmpty == true {
-                    scanResults[category]?.isCleaned = category != .trash
+            if !privilegedTrashDeletionFiles.isEmpty {
+                let paths = privilegedTrashDeletionFiles.map(\.path)
+                let outcome = await Task.detached(priority: .userInitiated) {
+                    PrivilegedRemovalService.remove(paths: paths)
+                }.value
+                for file in privilegedTrashDeletionFiles {
+                    if outcome.removedPaths.contains(file.path) {
+                        removed += 1
+                        AppLog.info("deleted", metadata: ["path": file.path])
+                        scanResults[category]?.items.removeAll { $0.path == file.path }
+                    } else {
+                        failed += 1
+                        let detail = outcome.failures[file.path] ?? "管理员授权后仍未能删除。"
+                        failureDetails.append("\(file.path)：\(detail)")
+                        AppLog.error("delete failed", metadata: ["path": file.path, "error": detail])
+                    }
                 }
-                if removed > 0 && failed == 0 {
-                    celebrationToken += 1
-                }
-                if failed > 0 {
-                    alertTitle = "部分删除失败"
-                    alertMessage = category == .trash
-                        ? "有 \(failed) 个项目无法删除，请检查权限后重试。"
-                        : "有 \(failed) 个项目无法移到废纸篓，请检查权限后重试。"
-                    showingAlert = true
-                }
+            }
+
+            // 刷新空态
+            if scanResults[category]?.items.isEmpty == true {
+                scanResults[category]?.isCleaned = category != .trash
+            }
+            if removed > 0 && failed == 0 {
+                celebrationToken += 1
+            }
+            if failed > 0 {
+                alertTitle = removed == 0 ? "删除失败" : "部分删除失败"
+                let summary = category == .trash
+                    ? "有 \(failed) 个项目无法删除。"
+                    : "有 \(failed) 个项目无法移到废纸篓。"
+                alertMessage = summary + "\n" + failureDetails.prefix(3).joined(separator: "\n")
+                showingAlert = true
             }
         }
     }
@@ -628,15 +688,19 @@ class MainViewModel: ObservableObject {
 
         var movedPaths = recycledPaths
         var failureDetails: [String] = []
-        for file in files where !movedPaths.contains(file.path) {
-            let path = file.path
-            let outcome = await Task.detached(priority: .userInitiated) {
-                ApplicationUninstallService.moveToTrashWithAdministratorPrivileges(appPath: path)
+        let remaining = files.filter { !movedPaths.contains($0.path) }
+        if !remaining.isEmpty {
+            let paths = remaining.map(\.path)
+            let outcomes = await Task.detached(priority: .userInitiated) {
+                ApplicationUninstallService.moveToTrashWithAdministratorPrivileges(appPaths: paths)
             }.value
-            if outcome.succeeded {
-                movedPaths.insert(path)
-            } else {
-                failureDetails.append("\(file.name)：\(outcome.message ?? recycleError ?? "未知错误")")
+            for file in remaining {
+                let outcome = outcomes[file.path]
+                if outcome?.succeeded == true {
+                    movedPaths.insert(file.path)
+                } else {
+                    failureDetails.append("\(file.name)：\(outcome?.message ?? recycleError ?? "未知错误")")
+                }
             }
         }
 
@@ -645,18 +709,23 @@ class MainViewModel: ObservableObject {
         let failedCount = files.count - movedPaths.count
         // 清理勾选的残留
         var leftoverNote = ""
+        var leftoverFailed = 0
         if failedCount == 0 && !leftoverPaths.isEmpty {
             let outcome = await Task.detached {
                 AppLeftoverScanner.removeLeftovers(leftoverPaths)
             }.value
+            leftoverFailed = outcome.failed
             leftoverNote = outcome.removed > 0
                 ? "，并删除了 \(outcome.removed) 处残留"
                 : ""
         }
 
         if failedCount == 0 {
-            alertTitle = "卸载完成"
+            alertTitle = leftoverFailed == 0 ? "卸载完成" : "部分残留清理失败"
             alertMessage = "已将 \(files.count) 个应用移到废纸篓。\(leftoverNote)"
+            if leftoverFailed > 0 {
+                alertMessage += "\n\(leftoverFailed) 处残留未能删除，请检查权限后重试。"
+            }
         } else {
             let failedFiles = files.filter { !movedPaths.contains($0.path) }
             if !afterPermissionRequest,
@@ -672,7 +741,7 @@ class MainViewModel: ObservableObject {
 
             alertTitle = failedCount == files.count ? "卸载失败" : "部分应用卸载失败"
             let detail = failureDetails.prefix(3).joined(separator: "\n")
-            alertMessage = "\(failedCount) 个应用未能移到废纸篓。请在「设置 → 权限 → 应用管理」中检查 cleanMac 的授权，并确认应用已退出。受系统保护的应用可能无法卸载。\n\(detail)"
+            alertMessage = "\(failedCount) 个应用未能移到废纸篓。请在「系统设置 → 隐私与安全性 → 应用管理」中检查 cleanMac 的授权，并确认应用已退出。受系统保护的应用可能无法卸载。\n\(detail)"
         }
         showingAlert = true
     }

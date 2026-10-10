@@ -268,7 +268,6 @@ final class ScanService: @unchecked Sendable {
                 "\(self.homeDir)/Desktop",
                 "\(self.homeDir)/Documents",
                 "\(self.homeDir)/Movies",
-                "/Library/InstallerSandboxes",
                 "\(self.homeDir)/Library/Caches"
             ]
 

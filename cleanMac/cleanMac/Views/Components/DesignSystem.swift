@@ -286,6 +286,10 @@ struct ScanHeroControl: View {
     var segments: [Segment] = []
     var cleanableText: String = ""
     var smartCleanText: String = ""
+    var scanningTitle: String? = nil
+    var scanningSubtitle: String? = nil
+    var finishedTitle: String? = nil
+    var finishedSubtitle: String? = nil
     var isEnabled: Bool = true
     var isSmartCleanEnabled: Bool = false
     var action: () -> Void
@@ -723,10 +727,9 @@ struct ScanHeroControl: View {
                             .foregroundColor(.white)
                             .monospacedDigit()
                     } else {
-                        Text(overlayPercent)
+                        Text("开始清理")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.white.opacity(0.95))
-                            .monospacedDigit()
                     }
                 }
             }
@@ -749,10 +752,6 @@ struct ScanHeroControl: View {
     }
 
     private var buttonDiameter: CGFloat { isScanning ? 140 : 148 }
-
-    private var overlayPercent: String {
-        "\(Int(storageUsed * 100))%"
-    }
 
     private var buttonGradient: LinearGradient {
         if isScanning || !isEnabled {
@@ -783,9 +782,9 @@ struct ScanHeroControl: View {
         }
         switch phase {
         case .idle: return "开始清理扫描"
-        case .scanning: return "正在扫描垃圾…"
+        case .scanning: return scanningTitle ?? "正在扫描垃圾…"
         case .finished:
-            return cleanableText.isEmpty ? "重新扫描" : "预计可释放 \(cleanableText)"
+            return finishedTitle ?? (cleanableText.isEmpty ? "重新扫描" : "预计可释放 \(cleanableText)")
         }
     }
 
@@ -800,11 +799,11 @@ struct ScanHeroControl: View {
         case .idle:
             return "扫描缓存、浏览器缓存、日志、应用残留与废纸篓"
         case .scanning:
-            return "清理扫描进行中 · 完成后可再次扫描"
+            return scanningSubtitle ?? "清理扫描进行中 · 完成后可再次扫描"
         case .finished:
-            return showSegments
+            return finishedSubtitle ?? (showSegments
                 ? "外环为可清理构成 · 悬停查看 · 点按进入"
-                : "再扫一次，更新可清理项目"
+                : "再扫一次，更新可清理项目")
         }
     }
 
@@ -812,7 +811,7 @@ struct ScanHeroControl: View {
     private var icon: some View {
         switch phase {
         case .idle:
-            Image(systemName: "sparkle.magnifyingglass")
+            Image(systemName: "sparkles")
                 .font(.system(size: 36, weight: .semibold))
                 .scaleEffect(isCenterHovered && isEnabled ? 1.06 : 1)
         case .scanning:
