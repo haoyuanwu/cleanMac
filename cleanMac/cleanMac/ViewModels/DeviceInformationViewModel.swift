@@ -7,14 +7,17 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
     @Published private(set) var snapshot: DeviceInfoSnapshot?
     @Published private(set) var isLoading = false
     @Published private(set) var locationStatus: CLAuthorizationStatus
+    @Published private(set) var didRequestWiFiNameAccess = false
+    @Published private(set) var locationRequestIssue: String?
 
     private let locationManager = CLLocationManager()
-    private var refreshAfterLocationAuthorization = false
+    private var refreshAfterLoading = false
 
     override init() {
         locationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
     }
 
     func loadIfNeeded() {
@@ -23,7 +26,10 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
     }
 
     func refresh() {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            refreshAfterLoading = true
+            return
+        }
         isLoading = true
         Task {
             let result = await Task.detached(priority: .utility) {
@@ -31,29 +37,57 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
             }.value
             snapshot = result
             isLoading = false
+            if refreshAfterLoading {
+                refreshAfterLoading = false
+                refresh()
+            }
         }
     }
 
     func requestWiFiNameAccess() {
         guard locationStatus == .notDetermined else { return }
-        refreshAfterLocationAuthorization = true
+        didRequestWiFiNameAccess = true
+        locationRequestIssue = nil
         locationManager.requestWhenInUseAuthorization()
+        // macOS 在实际启动定位服务时显示授权弹窗；坐标结果不用于设备信息。
+        locationManager.requestLocation()
     }
 
     func updateLocationStatus() {
         let previous = locationStatus
         locationStatus = locationManager.authorizationStatus
-        if previous != locationStatus, locationStatus == .authorizedAlways {
+        if locationStatus != .notDetermined {
+            didRequestWiFiNameAccess = false
+            locationRequestIssue = nil
+        }
+        if previous != locationStatus, hasLocationAccess {
             refresh()
         }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let previous = locationStatus
         locationStatus = manager.authorizationStatus
-        guard refreshAfterLocationAuthorization else { return }
-        refreshAfterLocationAuthorization = false
-        if locationStatus == .authorizedAlways {
+        guard locationStatus != .notDetermined else { return }
+        didRequestWiFiNameAccess = false
+        locationRequestIssue = nil
+        if previous != locationStatus, hasLocationAccess {
             refresh()
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        // 只用一次性请求触发系统授权，不读取或保存坐标。
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        updateLocationStatus()
+        if locationStatus == .notDetermined {
+            locationRequestIssue = "系统未能完成定位授权请求：\(error.localizedDescription)"
+        }
+    }
+
+    private var hasLocationAccess: Bool {
+        locationStatus == .authorizedAlways
     }
 }

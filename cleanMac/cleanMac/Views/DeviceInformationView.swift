@@ -190,9 +190,17 @@ struct DeviceInformationView: View {
         } else {
             switch viewModel.locationStatus {
             case .notDetermined:
-                wifiNameMessage("macOS 需要定位授权才能显示当前 Wi‑Fi 名称。")
-                Button("允许读取网络名称") { viewModel.requestWiFiNameAccess() }
+                wifiNameMessage(viewModel.locationRequestIssue ?? (viewModel.didRequestWiFiNameAccess
+                    ? "已请求系统授权。请在弹窗中允许；若未弹出，请检查定位设置。"
+                    : "macOS 需要定位授权才能显示当前 Wi‑Fi 名称。"))
+                Button(viewModel.didRequestWiFiNameAccess ? "重新请求授权" : "允许读取网络名称") {
+                    viewModel.requestWiFiNameAccess()
+                }
                     .buttonStyle(.link)
+                if viewModel.didRequestWiFiNameAccess {
+                    Button("打开定位设置", action: openLocationSettings)
+                        .buttonStyle(.link)
+                }
             case .denied, .restricted:
                 wifiNameMessage("cleanMac 的定位权限未开启，无法读取网络名称。")
                 Button("打开定位设置", action: openLocationSettings)
