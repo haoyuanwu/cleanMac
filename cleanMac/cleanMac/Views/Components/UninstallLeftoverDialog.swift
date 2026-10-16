@@ -25,7 +25,7 @@ struct UninstallLeftoverDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(estimates.count == 1 ? "卸载 \(estimates[0].appName)？" : "卸载 \(estimates.count) 个应用？")
+                Text(estimates.count == 1 ? "卸载 \(estimates[0].displayName)？" : "卸载 \(estimates.count) 个应用？")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
 
                 Text("应用将移到废纸篓。已推荐勾选检测到的相关残留，可按需取消。")
@@ -46,8 +46,13 @@ struct UninstallLeftoverDialog: View {
                 HStack(spacing: 10) {
                     Image(systemName: "app.fill")
                         .foregroundColor(.indigo)
-                    Text(estimate.appName)
-                        .font(.system(size: 13, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(estimate.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(estimate.appFileName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
                     Spacer()
                     Text(estimate.appSizeFormatted)
                         .font(.system(size: 12, design: .rounded))
@@ -105,26 +110,26 @@ struct UninstallLeftoverDialog: View {
             }
 
             HStack(spacing: 12) {
-                Button("取消") {
-                    onCancel()
+                Button(action: onCancel) {
+                    Text("取消")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.primary.opacity(0.07), in: Capsule())
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 1))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
 
-                Button {
-                    onConfirm()
-                } label: {
+                Button(action: onConfirm) {
                     Text(selectedLeftoverPaths.isEmpty
                          ? "仅卸载应用"
                          : "卸载并删除 \(selectedLeftoverPaths.count) 处残留")
                         .font(.system(size: 13, weight: .semibold))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Theme.accentGradient, in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
             }
         }
         .padding(22)

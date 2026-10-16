@@ -147,7 +147,7 @@ struct SidebarView: View {
             // 底部仅显示版本
             Section {
                 HStack {
-                    Text("cleanMac v1.0")
+                    Text(appVersionText)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary.opacity(0.85))
                     Spacer()
@@ -160,6 +160,14 @@ struct SidebarView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.sidebarGradient.ignoresSafeArea())
         .frame(minWidth: 200, idealWidth: 232, maxWidth: 260)
+    }
+
+    /// cleanMac v1.0 (1)
+    private var appVersionText: String {
+        let info = Bundle.main.infoDictionary
+        let shortVersion = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+        return "cleanMac v\(shortVersion) (\(build))"
     }
 
     private func categoryRow(_ category: ScanCategory) -> some View {

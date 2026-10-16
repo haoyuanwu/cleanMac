@@ -92,12 +92,15 @@ enum DeleteDryRun {
            components[3] == String(getuid()) {
             return true
         }
-        // 扫描器会列出这些日志目录。系统日志仅允许 /var/log 的直接子目录，
-        // 不允许清理日志根目录或任意更深的系统路径。
+        // 扫描器会列出这些日志目录。系统日志允许 /var/log 下的项目，
+        // 但不允许清理日志根目录本身。
         if path == home + "/.android/logs" {
             return true
         }
-        if ["/var/log", "/private/var/log"].contains(parent) {
+        if path.hasPrefix("/var/log/") || path.hasPrefix("/private/var/log/") {
+            return true
+        }
+        if path.hasPrefix("/Library/Logs/") {
             return true
         }
         // 系统缓存单文件可清

@@ -10,13 +10,22 @@ enum PrivilegedTrashService {
     nonisolated static func isSupportedItem(_ path: String) -> Bool {
         let source = URL(fileURLWithPath: path).standardizedFileURL
         let resolved = source.resolvingSymlinksInPath()
-        let parent = source.deletingLastPathComponent().path
-        let resolvedParent = resolved.deletingLastPathComponent().path
-        // macOS 上 Foundation 可能保留 /var/log，也可能解析成 /private/var/log。
-        return (["/Library/Caches", "/System/Library/Caches", "/Library/Logs"].contains(parent)
-                && resolvedParent == parent)
-            || (["/var/log", "/private/var/log"].contains(parent)
-                && ["/var/log", "/private/var/log"].contains(resolvedParent))
+        let candidates = [source.path, resolved.path]
+
+        for candidate in candidates {
+            // 日志：/var/log 与 /Library/Logs 下任意层级
+            if candidate.hasPrefix("/var/log/")
+                || candidate.hasPrefix("/private/var/log/")
+                || candidate.hasPrefix("/Library/Logs/") {
+                return true
+            }
+            // 系统/本地缓存目录下
+            if candidate.hasPrefix("/Library/Caches/")
+                || candidate.hasPrefix("/System/Library/Caches/") {
+                return true
+            }
+        }
+        return false
     }
 
     /// 一次 AppleScript 管理员授权处理整批项目，并按目标是否实际出现逐项反馈。

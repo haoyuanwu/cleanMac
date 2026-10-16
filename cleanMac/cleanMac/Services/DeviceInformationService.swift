@@ -15,6 +15,7 @@ struct DeviceInfoSnapshot: Sendable {
     let battery: [DeviceInfoField]
     let batteryLevel: Double?
     let wifi: [DeviceInfoField]
+    let network: [DeviceInfoField]
     let bluetooth: [DeviceInfoField]
     let connectedBluetoothDevices: [BluetoothConnectedDevice]
     let storage: [DeviceInfoField]
@@ -103,6 +104,7 @@ enum DeviceInformationService {
             battery: battery.fields,
             batteryLevel: battery.level,
             wifi: wifiFields(),
+            network: networkFields(),
             bluetooth: bluetooth.fields,
             connectedBluetoothDevices: bluetooth.devices,
             storage: [
@@ -114,6 +116,16 @@ enum DeviceInformationService {
             storageUsedFraction: disk.totalBytes > 0 ? min(1, max(0, Double(disk.usedBytes) / Double(disk.totalBytes))) : nil,
             capturedAt: Date()
         )
+    }
+
+    /// 网络接口概况（不含实时速率；速率由 NetworkSpeedMonitor 持续采样）
+    nonisolated static func networkFields() -> [DeviceInfoField] {
+        let counters = NetworkSpeedService.readCounters()
+        return [
+            .init(label: "累计下载", value: FileSizeFormatter.string(fromByteCount: Int64(counters.rx))),
+            .init(label: "累计上传", value: FileSizeFormatter.string(fromByteCount: Int64(counters.tx))),
+            .init(label: "采样说明", value: "实时上下行见下方速度表（每秒刷新）")
+        ]
     }
 
     nonisolated private static func display(_ value: String?) -> String {

@@ -228,14 +228,12 @@ final class ScanService: @unchecked Sendable {
                         let attrs = try? self.fileManager.attributesOfItem(atPath: fullPath)
                         let modDate = attrs?[.modificationDate] as? Date
                         
-                        let appName = (item as NSString).deletingPathExtension
-                        
                         // 获取应用图标
                         let appIcon = self.getAppIcon(for: fullPath)
                         
                         items.append(FileItem(
                             path: fullPath,
-                            name: appName,
+                            name: ApplicationNameResolver.displayName(atPath: fullPath),
                             size: size,
                             modificationDate: modDate,
                             isDirectory: true,

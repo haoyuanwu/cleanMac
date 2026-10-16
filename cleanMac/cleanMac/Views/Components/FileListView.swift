@@ -277,7 +277,9 @@ struct FileCardRow: View {
                     .frame(maxWidth: 160, alignment: .leading)
                     .help("相对本列表最大文件的体量")
 
-                    Text(dateText)
+                    Text(file.pathURL.pathExtension.lowercased() == "app"
+                         ? "\(file.pathURL.lastPathComponent) · \(dateText)"
+                         : dateText)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .lineLimit(1)

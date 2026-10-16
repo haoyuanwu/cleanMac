@@ -32,6 +32,9 @@ struct AppLeftoverEstimate: Sendable {
     let appSize: Int64
     let leftovers: [AppLeftoverItem]
 
+    var appFileName: String { URL(fileURLWithPath: appPath).lastPathComponent }
+    var displayName: String { ApplicationNameResolver.displayName(atPath: appPath) }
+
     var leftoverSize: Int64 {
         leftovers.reduce(0) { $0 + $1.size }
     }

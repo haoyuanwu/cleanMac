@@ -9,15 +9,57 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
     @Published private(set) var locationStatus: CLAuthorizationStatus
     @Published private(set) var didRequestWiFiNameAccess = false
     @Published private(set) var locationRequestIssue: String?
+    /// 实时网速（1s 采样）
+    @Published private(set) var networkThroughput: NetworkThroughput = .zero
 
     private let locationManager = CLLocationManager()
     private var refreshAfterLoading = false
+    private var speedTimer: Timer?
 
     override init() {
         locationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+    }
+
+    deinit {
+        // Timer 在主线程 runloop，invalidate 在 start/stop 管理
+    }
+
+    func startNetworkMonitor() {
+        guard speedTimer == nil else { return }
+        let box = CounterBox()
+        box.value = NetworkSpeedService.readCounters()
+        box.date = Date()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let now = Date()
+                let current = NetworkSpeedService.readCounters()
+                self.networkThroughput = NetworkSpeedService.throughput(
+                    from: box.value,
+                    to: current,
+                    seconds: now.timeIntervalSince(box.date)
+                )
+                box.value = current
+                box.date = now
+            }
+        }
+        timer.tolerance = 0.15
+        RunLoop.main.add(timer, forMode: .common)
+        speedTimer = timer
+    }
+
+    func stopNetworkMonitor() {
+        speedTimer?.invalidate()
+        speedTimer = nil
+        networkThroughput = .zero
+    }
+
+    private final class CounterBox: @unchecked Sendable {
+        var value: NetworkByteCounters = .init(rx: 0, tx: 0)
+        var date = Date()
     }
 
     func loadIfNeeded() {
@@ -31,6 +73,7 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
             return
         }
         isLoading = true
+        startNetworkMonitor()
         Task {
             let result = await Task.detached(priority: .utility) {
                 DeviceInformationService.load()

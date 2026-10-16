@@ -561,11 +561,11 @@ class MainViewModel: ObservableObject {
 
         Task {
             let fileManager = FileManager.default
-            var failed = validated.blocked.count
+            // dry-run 拦截的视为「已跳过」，不计入删除失败，避免日志全选时误报
+            var failed = 0
+            var skipped = validated.blocked.count
             var removed = 0
-            var failureDetails = validated.blocked.map { file, reason in
-                "\(file.path)：\(reason)"
-            }
+            var failureDetails: [String] = []
             var privilegedFiles: [FileItem] = []
             var privilegedTrashDeletionFiles: [FileItem] = []
             for file in files {
@@ -646,7 +646,11 @@ class MainViewModel: ObservableObject {
                 }
             }
 
-            // 刷新空态
+            // 有失败或跳过时刷新该类别，保证列表与磁盘一致
+            if failed > 0 || skipped > 0 {
+                await self.scanCategory(category)
+            }
+
             if scanResults[category]?.items.isEmpty == true {
                 scanResults[category]?.isCleaned = category != .trash
             }
@@ -658,8 +662,15 @@ class MainViewModel: ObservableObject {
                 let summary = category == .trash
                     ? "有 \(failed) 个项目无法删除。"
                     : "有 \(failed) 个项目无法移到废纸篓。"
-                alertMessage = summary + "\n" + failureDetails.prefix(3).joined(separator: "\n")
+                let skipNote = skipped > 0 ? "（另有 \(skipped) 项已跳过）" : ""
+                alertMessage = summary + skipNote + "\n" + failureDetails.prefix(3).joined(separator: "\n")
                 showingAlert = true
+            } else if skipped > 0 && removed == 0 {
+                // 全部被跳过（如白名单）：静默刷新即可
+                AppLog.info("delete all skipped", metadata: [
+                    "category": category.rawValue,
+                    "skipped": "\(skipped)"
+                ])
             }
         }
     }

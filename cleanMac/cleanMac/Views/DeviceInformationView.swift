@@ -135,6 +135,7 @@ struct DeviceInformationView: View {
             infoCard("硬件信息", icon: "desktopcomputer", tint: .blue, fields: snapshot.device)
             batteryCard(snapshot)
             wifiCard(snapshot)
+            networkSpeedCard(snapshot)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
@@ -168,6 +169,53 @@ struct DeviceInformationView: View {
             fieldList(snapshot.storage, section: "存储")
         }
         .modifier(InfoCardStyle())
+    }
+
+    private func networkSpeedCard(_ snapshot: DeviceInfoSnapshot) -> some View {
+        CardView {
+            VStack(alignment: .leading, spacing: 12) {
+                cardHeader("网络速度", icon: "network", tint: .blue)
+
+                HStack(spacing: 18) {
+                    speedCell(
+                        title: "下载",
+                        value: viewModel.networkThroughput.downloadText,
+                        systemImage: "arrow.down.circle.fill",
+                        tint: .blue
+                    )
+                    speedCell(
+                        title: "上传",
+                        value: viewModel.networkThroughput.uploadText,
+                        systemImage: "arrow.up.circle.fill",
+                        tint: .green
+                    )
+                    Spacer(minLength: 0)
+                    Text("每秒刷新")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                fieldList(snapshot.network, section: "网络")
+            }
+        }
+    }
+
+    private func speedCell(title: String, value: String, systemImage: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16))
+                .foregroundColor(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .animation(.easeOut(duration: 0.2), value: value)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func wifiCard(_ snapshot: DeviceInfoSnapshot) -> some View {
