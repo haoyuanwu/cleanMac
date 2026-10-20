@@ -30,9 +30,13 @@ fi
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED" \
-  -destination 'platform=macOS' \
+  -destination 'generic/platform=macOS' \
   "${BUILD_SETTINGS[@]}" \
-  build | tail -n 20
+  build > "$ROOT/build/xcodebuild-release.log" 2>&1 || {
+    tail -n 100 "$ROOT/build/xcodebuild-release.log" >&2
+    exit 1
+  }
+tail -n 20 "$ROOT/build/xcodebuild-release.log"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "错误：未找到 $APP_PATH" >&2

@@ -23,6 +23,11 @@ struct SettingsView: View {
                 pageHeader
 
                 VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("开发支持", subtitle: "如果 cleanMac 帮到了你，欢迎请我喝杯咖啡。")
+                    donationCard
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
                     sectionHeader("提醒与监测", subtitle: "按需调整空间提醒，设置会立即生效。")
                     LazyVGrid(columns: settingsColumns, alignment: .leading, spacing: 14) {
                         trashWarningCard
@@ -48,10 +53,6 @@ struct SettingsView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("支持开发", subtitle: "如果 cleanMac 帮到了你，欢迎请我喝杯咖啡。")
-                    donationCard
-                }
             }
             .frame(maxWidth: 960)
             .padding(.horizontal, 28)
