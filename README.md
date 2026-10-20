@@ -62,7 +62,11 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 ## 构建
 
-进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。运行 `BUILD_ARCH=arm64 ./Scripts/make_dmg.sh` 或 `BUILD_ARCH=x86_64 ./Scripts/make_dmg.sh` 可分别生成两个架构的安装包；不指定 `BUILD_ARCH` 时生成通用包。公开分发需另行使用 Developer ID 签名并完成 Apple 公证。
+进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。直接运行 `./Scripts/make_dmg.sh` 会生成 `build/cleanMac-arm64.dmg` 和 `build/cleanMac-x86_64.dmg`。可用 `BUILD_ARCH=arm64` 或 `BUILD_ARCH=x86_64` 只生成一个架构，`BUILD_ARCH=universal` 生成通用包。
+
+脚本会为 app 添加完整签名，并挂载每个 DMG 检查包内签名、版本和架构；校验失败即停止。默认使用 ad-hoc 完整性签名，这不能替代 Developer ID 和 Apple 公证，下载后仍可能被 Gatekeeper 拦截。
+
+配置发布证书与已存入钥匙串的公证凭据后，可运行 `CODESIGN_IDENTITY="Developer ID Application: ..." NOTARY_KEYCHAIN_PROFILE="配置名称" ./Scripts/make_dmg.sh`，生成签名并公证的两个安装包。公证完成后脚本还会验证公证票据和 Gatekeeper 评估结果。
 
 ## 开发支持
 
