@@ -30,4 +30,4 @@
 
 ## 构建
 
-使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。也可运行 `./Scripts/make_dmg.sh` 在 `build/cleanMac.dmg` 生成安装包。公开分发需另行使用 Developer ID 签名并完成 Apple 公证。
+进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。也可运行 `./Scripts/make_dmg.sh` 在 `cleanMac/build/cleanMac.dmg` 生成安装包。公开分发需另行使用 Developer ID 签名并完成 Apple 公证。
