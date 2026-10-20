@@ -1,4 +1,4 @@
-name: Build and publish DMG
+name: Build and publish architecture-specific DMGs
 
 on:
   push:
@@ -15,16 +15,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Xcode 27.1
         run: sudo xcode-select -s /Applications/Xcode_27.1.app/Contents/Developer
-      - name: Build DMG
-        run: ./cleanMac/Scripts/make_dmg.sh
-      - name: Verify DMG
+      - name: Build Apple Silicon DMG
+        run: BUILD_ARCH=arm64 ./cleanMac/Scripts/make_dmg.sh
+      - name: Build Intel DMG
+        run: BUILD_ARCH=x86_64 ./cleanMac/Scripts/make_dmg.sh
+      - name: Verify DMGs
         run: |
-          hdiutil verify cleanMac/build/cleanMac.dmg
-          shasum -a 256 cleanMac/build/cleanMac.dmg
+          hdiutil verify cleanMac/build/cleanMac-arm64.dmg
+          hdiutil verify cleanMac/build/cleanMac-x86_64.dmg
+          test "$(lipo -archs cleanMac/build/dd-arm64/Build/Products/Release/cleanMac.app/Contents/MacOS/cleanMac)" = arm64
+          test "$(lipo -archs cleanMac/build/dd-x86_64/Build/Products/Release/cleanMac.app/Contents/MacOS/cleanMac)" = x86_64
+          shasum -a 256 cleanMac/build/cleanMac-arm64.dmg cleanMac/build/cleanMac-x86_64.dmg
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" cleanMac/build/cleanMac.dmg \
+          gh release create "$GITHUB_REF_NAME" cleanMac/build/cleanMac-arm64.dmg cleanMac/build/cleanMac-x86_64.dmg \
             --title "cleanMac ${GITHUB_REF_NAME#v}" \
-            --notes "macOS 13.5 或更新版本。新增请我喝杯咖啡入口和首次手动完整扫描后的一次性提示；安装时打开 DMG，将 cleanMac.app 拖入应用程序。此安装包未使用 Developer ID 签名，也未进行 Apple 公证。"
+            --notes "macOS 13.5 或更新版本。请按芯片选择安装包：Apple Silicon 下载 cleanMac-arm64.dmg，Intel 下载 cleanMac-x86_64.dmg。本版改进状态栏快捷操作与设备卡片，新增电脑和蓝牙设备的低电量分级提醒，并修正清理后的撒花效果。安装时打开 DMG，将 cleanMac.app 拖入应用程序。安装包未使用 Developer ID 签名，也未进行 Apple 公证。"

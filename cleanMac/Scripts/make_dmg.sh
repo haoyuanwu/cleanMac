@@ -2,6 +2,8 @@
 # cleanMac: Release 构建 → 生成 DMG
 # 用法:
 #   ./Scripts/make_dmg.sh
+#   BUILD_ARCH=arm64 ./Scripts/make_dmg.sh
+#   BUILD_ARCH=x86_64 ./Scripts/make_dmg.sh
 #   CODESIGN_IDENTITY="Developer ID Application: ..." ./Scripts/make_dmg.sh
 #   NOTARY_APPLE_ID=... NOTARY_TEAM_ID=... NOTARY_PASSWORD=... ./Scripts/make_dmg.sh
 set -euo pipefail
@@ -13,10 +15,16 @@ PROJECT="cleanMac.xcodeproj"
 SCHEME="cleanMac"
 CONFIG="Release"
 APP_NAME="cleanMac"
-DERIVED="$ROOT/build/dd"
+BUILD_ARCH="${BUILD_ARCH:-}"
+if [[ -n "$BUILD_ARCH" && "$BUILD_ARCH" != "arm64" && "$BUILD_ARCH" != "x86_64" ]]; then
+  echo "错误：BUILD_ARCH 只支持 arm64 或 x86_64" >&2
+  exit 1
+fi
+ARCH_SUFFIX="${BUILD_ARCH:+-$BUILD_ARCH}"
+DERIVED="$ROOT/build/dd$ARCH_SUFFIX"
 APP_PATH="$DERIVED/Build/Products/$CONFIG/$APP_NAME.app"
-STAGING="$ROOT/build/dmg-staging"
-DMG_PATH="$ROOT/build/$APP_NAME.dmg"
+STAGING="$ROOT/build/dmg-staging$ARCH_SUFFIX"
+DMG_PATH="$ROOT/build/$APP_NAME$ARCH_SUFFIX.dmg"
 VOL_NAME="cleanMac"
 ARCH_PATH="$ROOT/build/cleanMac.xcarchive"
 
@@ -26,6 +34,9 @@ mkdir -p "$ROOT/build"
 BUILD_SETTINGS=()
 if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
   BUILD_SETTINGS+=(CODE_SIGNING_ALLOWED=NO)
+fi
+if [[ -n "$BUILD_ARCH" ]]; then
+  BUILD_SETTINGS+=("ARCHS=$BUILD_ARCH" ONLY_ACTIVE_ARCH=NO)
 fi
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
   -configuration "$CONFIG" \
@@ -41,6 +52,13 @@ tail -n 20 "$ROOT/build/xcodebuild-release.log"
 if [[ ! -d "$APP_PATH" ]]; then
   echo "错误：未找到 $APP_PATH" >&2
   exit 1
+fi
+if [[ -n "$BUILD_ARCH" ]]; then
+  ACTUAL_ARCHS="$(lipo -archs "$APP_PATH/Contents/MacOS/$APP_NAME")"
+  if [[ "$ACTUAL_ARCHS" != "$BUILD_ARCH" ]]; then
+    echo "错误：预期 $BUILD_ARCH，实际 $ACTUAL_ARCHS" >&2
+    exit 1
+  fi
 fi
 
 echo "==> 2/5 准备 staging"

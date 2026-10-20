@@ -46,7 +46,7 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/haoyuanwu/cleanMac/releases/latest) 下载最新的 `cleanMac.dmg`，打开后将 `cleanMac.app` 拖入“应用程序”文件夹。
+从 [GitHub Releases](https://github.com/haoyuanwu/cleanMac/releases/latest) 下载对应芯片的安装包：Apple Silicon（M 系列）选择 `cleanMac-arm64.dmg`，Intel 选择 `cleanMac-x86_64.dmg`。打开 DMG 后将 `cleanMac.app` 拖入“应用程序”文件夹。
 
 要求 **macOS 13.5 或更新版本**。部分受系统保护的位置可能需要“完全磁盘访问”或操作时的管理员授权。发布包的签名与公证状态请以对应 Release 说明为准。
 
@@ -62,7 +62,7 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 ## 构建
 
-进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。也可运行 `./Scripts/make_dmg.sh` 在 `cleanMac/build/cleanMac.dmg` 生成安装包。公开分发需另行使用 Developer ID 签名并完成 Apple 公证。
+进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。运行 `BUILD_ARCH=arm64 ./Scripts/make_dmg.sh` 或 `BUILD_ARCH=x86_64 ./Scripts/make_dmg.sh` 可分别生成两个架构的安装包；不指定 `BUILD_ARCH` 时生成通用包。公开分发需另行使用 Developer ID 签名并完成 Apple 公证。
 
 ## 开发支持
 
