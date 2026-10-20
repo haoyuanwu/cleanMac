@@ -50,6 +50,40 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 要求 **macOS 13.5 或更新版本**。部分受系统保护的位置可能需要“完全磁盘访问”或操作时的管理员授权。发布包的签名与公证状态请以对应 Release 说明为准。
 
+### 首次打开与 macOS 安全设置
+
+当前安装包尚未经过 Apple 公证，首次打开可能被 macOS 拦截。请从本项目的 GitHub Releases 下载最新版本，再按需设置。
+
+1. 将 `cleanMac.app` 拖入“应用程序”，尝试打开一次。
+2. 打开“系统设置 → 隐私与安全性”，找到 cleanMac 被阻止的提示，点击“仍要打开”，按系统提示确认。
+3. 如果需要启用“任何来源”，可按下面的说明操作。只为打开本应用时，可以先使用上面的单应用授权方式。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
+
+**显示并允许“任何来源”**
+
+打开“终端”，执行：
+
+```bash
+sudo spctl --global-disable
+```
+
+输入 Mac 管理员密码并回车；输入时终端不会显示密码字符。较新的 macOS 中，此命令会显示“任何来源”选项，仍需前往“系统设置 → 隐私与安全性 → 安全性 → 允许从以下位置下载的应用程序”，选择“任何来源”并确认。若设置页面已打开，可关闭后重新打开。
+
+旧版 macOS 如果不支持上述参数，可使用 [Apple 文档中的旧版命令](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html)：
+
+```bash
+sudo spctl --master-disable
+```
+
+**注意：允许“任何来源”会放宽整台 Mac 的应用来源检查，不只影响 cleanMac。** 请仅打开可信来源的应用；这项设置不会修复真正损坏的文件或让应用获得 Apple 公证。若仍提示“已损坏”，请先删除旧副本并重新下载最新安装包。
+
+**恢复系统的应用来源检查**
+
+```bash
+sudo spctl --global-enable
+```
+
+旧版 macOS 对应命令为 `sudo spctl --master-enable`。也可在“隐私与安全性”中恢复为“App Store 和被认可的开发者”。
+
 ## 使用方式
 
 1. 打开 cleanMac，点击“开始清理”进行概览扫描，或选择“深度清理”。

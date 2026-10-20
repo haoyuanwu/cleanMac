@@ -1,0 +1,29 @@
+name: Sync release descriptions
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/releases/*.md'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update existing releases with numbered notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for notes in docs/releases/v*.md; do
+            test -f "$notes" || continue
+            grep -Eq '^1[.] ' "$notes"
+            tag="$(basename "$notes" .md)"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --notes-file "$notes"
+            fi
+          done

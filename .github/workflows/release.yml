@@ -13,6 +13,11 @@ jobs:
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
+      - name: Require numbered release notes
+        run: |
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          test -s "$notes"
+          grep -Eq '^1[.] ' "$notes"
       - name: Select Xcode 27.1
         run: sudo xcode-select -s /Applications/Xcode_27.1.app/Contents/Developer
       - name: Build and validate Apple Silicon and Intel DMGs
@@ -30,4 +35,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" cleanMac/build/cleanMac-arm64.dmg cleanMac/build/cleanMac-x86_64.dmg \
             --title "cleanMac ${GITHUB_REF_NAME#v}" \
-            --notes "macOS 13.5 或更新版本。Apple Silicon（M 系列）下载 cleanMac-arm64.dmg，Intel 下载 cleanMac-x86_64.dmg。本版修复安装包缺少完整资源签名的问题；打包脚本默认生成两个架构的 DMG，并检查镜像内的签名、版本和架构。此前新增的状态栏快捷操作与设备卡片、电脑和蓝牙设备低电量分级提醒均保留。当前包采用 ad-hoc 完整性签名，未使用 Developer ID 证书、未完成 Apple 公证，因此下载后仍可能被 macOS Gatekeeper 拦截，不能视为已通过苹果信任验证。"
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md"
