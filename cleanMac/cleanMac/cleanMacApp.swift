@@ -5,6 +5,7 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         StorageGrowthMonitor.shared.start()
         TrashMonitor.shared.start()
+        ScheduledScanService.shared.start()
     }
 }
 

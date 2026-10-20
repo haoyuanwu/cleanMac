@@ -204,10 +204,7 @@ struct SmartCleanConfirmDialog: View {
                     .font(.system(size: 17))
                     .foregroundColor(isSelected ? .blue : .secondary)
 
-                Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
-                    .foregroundColor(.blue)
-                    .frame(width: 32, height: 32)
-                    .background(Color.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                FileItemIcon(file: item, size: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name)

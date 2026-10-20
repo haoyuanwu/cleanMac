@@ -244,22 +244,7 @@ struct FileCardRow: View {
             .accessibilityLabel(isSelected ? "取消选择 \(file.name)" : "选择 \(file.name)")
 
             HStack(spacing: 14) {
-                if let appIcon = file.appIcon {
-                    Image(nsImage: appIcon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                } else {
-                    Image(systemName: file.isDirectory ? "folder.fill" : "doc.text.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(file.isDirectory ? .blue : .secondary)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(file.isDirectory ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.12))
-                        )
-                }
+                FileItemIcon(file: file)
 
                 // 左侧信息：名称 + 日期 / 体量条（条左对齐）
                 VStack(alignment: .leading, spacing: 8) {

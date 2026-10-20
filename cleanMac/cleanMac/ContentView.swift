@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 主内容视图
 struct ContentView: View {
-    @StateObject private var viewModel = MainViewModel()
+    @ObservedObject private var viewModel = MainViewModel.shared
     @StateObject private var xcodeAnalysisViewModel = XcodeAnalysisViewModel()
     @StateObject private var duplicateScanSession = DuplicateScanSession()
     @StateObject private var diskMapSession = DiskMapSession()

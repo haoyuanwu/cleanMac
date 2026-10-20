@@ -162,11 +162,7 @@ struct TrashConfirmationOverlay: View {
             LazyVStack(spacing: 0) {
                 ForEach(Array(request.files.enumerated()), id: \.element.id) { index, file in
                     HStack(spacing: 12) {
-                        Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(accent)
-                            .frame(width: 34, height: 34)
-                            .background(accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                        FileItemIcon(file: file, size: 34)
 
                         VStack(alignment: .leading, spacing: 3) {
                             Text(file.name)

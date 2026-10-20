@@ -5,6 +5,7 @@ import Combine
 /// 主视图模型
 @MainActor
 class MainViewModel: ObservableObject {
+    static let shared = MainViewModel()
     enum ScanScope {
         case overview
         case deep

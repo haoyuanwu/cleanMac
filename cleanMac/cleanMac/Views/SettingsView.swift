@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var isHistoryExpanded = false
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
+    @ObservedObject private var scheduledScan = ScheduledScanService.shared
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -26,6 +27,11 @@ struct SettingsView: View {
                         trashWarningCard
                         growthWarningCard
                     }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("定时任务", subtitle: "安排每天自动扫描的时间。")
+                    scheduledScanCard
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -70,7 +76,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("设置")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("空间提醒、系统权限与应用信息")
+                Text("定时扫描、空间提醒与应用信息")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
@@ -195,6 +201,57 @@ struct SettingsView: View {
                     }
                     .font(.system(size: 11, weight: .medium))
                 }
+            }
+        }
+    }
+
+    private var scheduledScanCard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 14) {
+                    cardHeading("每日清理扫描", subtitle: "每天按设定时间自动扫描", icon: "calendar.badge.clock", tint: .blue)
+                    Toggle("开启定时扫描", isOn: Binding(
+                        get: { scheduledScan.isEnabled },
+                        set: { scheduledScan.setEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .accessibilityLabel("开启定时扫描")
+                }
+
+                Divider()
+
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("扫描时间")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("按 Mac 当前时区，每天执行一次")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    DatePicker("扫描时间", selection: Binding(
+                        get: { scheduledScan.selectedTime },
+                        set: { scheduledScan.setTime($0) }
+                    ), displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .datePickerStyle(.field)
+                    .disabled(!scheduledScan.isEnabled)
+                    .accessibilityLabel("每日扫描时间")
+                }
+
+                if let nextRun = scheduledScan.nextRun, scheduledScan.isEnabled {
+                    Label("下次扫描：\(nextRun.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.blue)
+                }
+                if let lastCompletedAt = scheduledScan.lastCompletedAt {
+                    Text("上次完成：\(lastCompletedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Text("仅扫描并展示结果，不会自动删除文件。主窗口关闭后仍可运行；退出 cleanMac 后不会执行。")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
         }
     }

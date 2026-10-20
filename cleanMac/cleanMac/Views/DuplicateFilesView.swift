@@ -210,14 +210,9 @@ struct DuplicateFilesView: View {
                         .foregroundColor(.secondary)
                         .frame(width: 16)
 
-                    Image(systemName: "doc.on.doc.fill")
-                        .font(.system(size: 13))
-                        .foregroundColor(.orange)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.orange.opacity(0.12))
-                        )
+                    if let firstFile = group.files.first {
+                        FileItemIcon(file: firstFile, size: 32)
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(group.files.first?.name ?? "副本")
@@ -300,6 +295,8 @@ struct DuplicateFilesView: View {
             }
             .buttonStyle(.plain)
             .help(isKeep ? "保留此份" : "设为保留")
+
+            FileItemIcon(file: file, size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.path)
