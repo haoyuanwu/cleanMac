@@ -9,6 +9,8 @@ struct CelebrationBanner: View {
     @State private var visible = false
     @State private var burstHandler: ((CGPoint) -> Void)?
     @State private var hideWork: DispatchWorkItem?
+    @State private var burstWorkItems: [DispatchWorkItem] = []
+    @State private var pendingSlots: [CGPoint]?
 
     var body: some View {
         GeometryReader { geo in
@@ -27,50 +29,55 @@ struct CelebrationBanner: View {
                                 .tag("circle")
                         }
                         .ignoresSafeArea()
-                        .onAppear {
+                        .task(id: proxy.particleSystem != nil) {
+                            guard proxy.particleSystem != nil else { return }
                             burstHandler = { screenPoint in
                                 proxy.move(to: screenPoint)
                                 proxy.burst()
                             }
+                            if let pendingSlots {
+                                fireSlots(pendingSlots)
+                                self.pendingSlots = nil
+                            }
+                        }
+                        .onDisappear {
+                            burstHandler = nil
                         }
                     }
                     .allowsHitTesting(false)
                     .transition(.opacity)
                 }
             }
-            .onAppear {
-                if token > 0 {
-                    playTripleBurst(size: geo.size)
-                }
-            }
             .onChange(of: token) { newValue in
                 guard newValue > 0 else { return }
                 playTripleBurst(size: geo.size)
             }
+            .onDisappear {
+                hideWork?.cancel()
+                burstWorkItems.forEach { $0.cancel() }
+                burstWorkItems = []
+                pendingSlots = nil
+                visible = false
+            }
         }
     }
 
-    /// 左 / 中上 / 右 三点，屏幕像素坐标；间隔 0.5s
+    /// 左上 / 中下 / 右上三处，位置基于整个窗口的像素坐标。
     private func playTripleBurst(size: CGSize) {
         hideWork?.cancel()
+        burstWorkItems.forEach { $0.cancel() }
+        burstWorkItems = []
         visible = true
 
-        // 三点铺开：角落与中上，明显分开
         let slots: [CGPoint] = [
-            CGPoint(x: size.width * 0.12, y: size.height * 0.55),
-            CGPoint(x: size.width * 0.50, y: size.height * 0.22),
-            CGPoint(x: size.width * 0.88, y: size.height * 0.62)
+            CGPoint(x: size.width * 0.14, y: size.height * 0.26),
+            CGPoint(x: size.width * 0.52, y: size.height * 0.60),
+            CGPoint(x: size.width * 0.87, y: size.height * 0.25)
         ]
-        let interval = 0.5
-
-        DispatchQueue.main.async {
-            guard burstHandler != nil else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                    fireSlots(slots, interval: interval)
-                }
-                return
-            }
-            fireSlots(slots, interval: interval)
+        if burstHandler == nil {
+            pendingSlots = slots
+        } else {
+            fireSlots(slots)
         }
 
         let hide = DispatchWorkItem {
@@ -79,15 +86,16 @@ struct CelebrationBanner: View {
             }
         }
         hideWork = hide
-        // 3 发 × 0.5s + 粒子寿命
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 + interval * 3, execute: hide)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: hide)
     }
 
-    private func fireSlots(_ slots: [CGPoint], interval: Double) {
+    private func fireSlots(_ slots: [CGPoint]) {
         for (index, slot) in slots.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * interval) {
+            let burst = DispatchWorkItem {
                 burstHandler?(slot)
             }
+            burstWorkItems.append(burst)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08 + Double(index) * 0.65, execute: burst)
         }
     }
 }

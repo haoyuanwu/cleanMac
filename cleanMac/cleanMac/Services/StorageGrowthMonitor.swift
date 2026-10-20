@@ -69,9 +69,11 @@ final class StorageGrowthMonitor: NSObject, ObservableObject, UNUserNotification
         let laterAction = UNNotificationAction(identifier: "CLEANMAC_STORAGE_GROWTH_LATER", title: "稍后", options: [])
         let reviewTrashAction = UNNotificationAction(identifier: "CLEANMAC_TRASH_REVIEW", title: "查看废纸篓", options: [.foreground])
         let trashLaterAction = UNNotificationAction(identifier: "CLEANMAC_TRASH_LATER", title: "稍后", options: [])
+        let viewBatteryAction = UNNotificationAction(identifier: "CLEANMAC_BATTERY_VIEW", title: "查看设备", options: [.foreground])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: categoryID, actions: [cleanAction, laterAction], intentIdentifiers: []),
-            UNNotificationCategory(identifier: "CLEANMAC_TRASH_WARNING", actions: [reviewTrashAction, trashLaterAction], intentIdentifiers: [])
+            UNNotificationCategory(identifier: "CLEANMAC_TRASH_WARNING", actions: [reviewTrashAction, trashLaterAction], intentIdentifiers: []),
+            UNNotificationCategory(identifier: BatteryAlertMonitor.notificationCategory, actions: [viewBatteryAction], intentIdentifiers: [])
         ])
 
         timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
@@ -188,14 +190,18 @@ final class StorageGrowthMonitor: NSObject, ObservableObject, UNUserNotification
         let action = response.actionIdentifier
         let category = response.notification.request.content.categoryIdentifier
         let isTrashWarning = category == "CLEANMAC_TRASH_WARNING"
+        let isBatteryWarning = category == BatteryAlertMonitor.notificationCategory
         completionHandler()
         guard (category == "CLEANMAC_STORAGE_GROWTH" && action != "CLEANMAC_STORAGE_GROWTH_LATER")
-                || (isTrashWarning && action != "CLEANMAC_TRASH_LATER") else { return }
+                || (isTrashWarning && action != "CLEANMAC_TRASH_LATER")
+                || isBatteryWarning else { return }
         Task { @MainActor in
             if action == "CLEANMAC_STORAGE_GROWTH_CLEAN" {
                 AppActionCoordinator.shared.requestOverviewScan()
             } else if isTrashWarning {
                 AppActionCoordinator.shared.requestTrashReview()
+            } else if isBatteryWarning {
+                AppActionCoordinator.shared.requestDeviceInfo()
             }
             AppActionCoordinator.shared.requestMainWindow()
         }

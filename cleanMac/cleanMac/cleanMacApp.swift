@@ -5,6 +5,7 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         StorageGrowthMonitor.shared.start()
         TrashMonitor.shared.start()
+        BatteryAlertMonitor.shared.start()
         ScheduledScanService.shared.start()
     }
 }
@@ -12,9 +13,18 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
 private struct MenuBarWindowRouter: View {
     @Environment(\.openWindow) private var openWindow
     @ObservedObject private var appActions = AppActionCoordinator.shared
+    @ObservedObject private var batteryAlerts = BatteryAlertMonitor.shared
 
     var body: some View {
-        Image(systemName: "internaldrive.fill")
+        HStack(spacing: 3) {
+            Image(systemName: "internaldrive.fill")
+            if batteryAlerts.hasBatteryWarning {
+                Image(systemName: (batteryAlerts.mostUrgentLevel ?? 100) <= 5 ? "battery.0percent" : "battery.25percent")
+                    .foregroundColor((batteryAlerts.mostUrgentLevel ?? 100) <= 10 ? .red : .orange)
+                    .accessibilityLabel("设备电量低，请充电")
+            }
+        }
+            .help(batteryAlerts.hasBatteryWarning ? "有设备电量低，请充电" : "cleanMac")
             .task { openPendingWindow() }
             .onChange(of: appActions.mainWindowRequest) { _ in openPendingWindow() }
     }

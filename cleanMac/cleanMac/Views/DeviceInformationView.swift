@@ -150,10 +150,20 @@ struct DeviceInformationView: View {
     }
 
     private func batteryCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            cardHeader("电池", icon: "battery.100percent", tint: .green)
+        let level = snapshot.batteryLevel.map { Int(($0 * 100).rounded()) }
+        let isLow = level.map { $0 < 20 } ?? false
+        let isOnBattery = snapshot.battery.first(where: { $0.label == "状态" })?.value == "使用电池"
+        let warningTint: Color = (level ?? 100) <= 10 ? .red : .orange
+
+        return VStack(alignment: .leading, spacing: 10) {
+            cardHeader("电池", icon: isLow ? "battery.25percent" : "battery.100percent", tint: isLow ? warningTint : .green)
             if let level = snapshot.batteryLevel {
-                progressSummary(value: "\(Int((level * 100).rounded()))%", fraction: level, tint: .green)
+                progressSummary(value: "\(Int((level * 100).rounded()))%", fraction: level, tint: isLow ? warningTint : .green)
+            }
+            if isLow && isOnBattery {
+                Label((level ?? 100) <= 5 ? "电脑电量告急，请立即充电" : "电脑电量低，请及时充电", systemImage: "battery.25percent")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(warningTint)
             }
             fieldList(snapshot.battery.filter { $0.label != "电量" }, section: "电池")
         }
@@ -280,8 +290,15 @@ struct DeviceInformationView: View {
     }
 
     private func bluetoothCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let lowCount = snapshot.connectedBluetoothDevices.filter { ($0.batteryLevel ?? 100) < 20 }.count
+
+        return VStack(alignment: .leading, spacing: 10) {
             cardHeader("蓝牙", icon: "wave.3.right", tint: .indigo)
+            if lowCount > 0 {
+                Label("\(lowCount) 台已连接设备电量低，请充电", systemImage: "battery.25percent")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.orange)
+            }
             fieldList(snapshot.bluetooth, section: "蓝牙")
             connectedDeviceList(snapshot.connectedBluetoothDevices)
         }
@@ -395,19 +412,21 @@ struct DeviceInformationView: View {
                     .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
             } else {
                 ForEach(devices) { device in
+                    let isLow = (device.batteryLevel ?? 100) < 20
+                    let tint: Color = (device.batteryLevel ?? 100) <= 10 ? .red : .orange
                     HStack(spacing: 10) {
                         Image(systemName: "hifispeaker.fill")
-                            .foregroundColor(.indigo)
+                            .foregroundColor(isLow ? tint : .indigo)
                             .frame(width: 28, height: 28)
-                            .background(.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            .background((isLow ? tint : .indigo).opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                         Text(device.name)
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(2)
                         Spacer(minLength: 8)
                         if let level = device.batteryLevel {
-                            Label("\(level)%", systemImage: "battery.100percent")
+                            Label(isLow ? "\(level)% · 请充电" : "\(level)%", systemImage: isLow ? "battery.25percent" : "battery.100percent")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(level <= 20 ? .orange : .green)
+                                .foregroundColor(isLow ? tint : .green)
                         } else {
                             Text("电量未提供")
                                 .font(.system(size: 11))
@@ -415,7 +434,7 @@ struct DeviceInformationView: View {
                         }
                     }
                     .padding(10)
-                    .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
+                    .background(isLow ? tint.opacity(0.08) : Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }

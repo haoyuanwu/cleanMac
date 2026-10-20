@@ -80,6 +80,7 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
             }.value
             snapshot = result
             isLoading = false
+            await BatteryAlertMonitor.shared.evaluate(result)
             if refreshAfterLoading {
                 refreshAfterLoading = false
                 refresh()

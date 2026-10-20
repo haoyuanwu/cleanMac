@@ -7,9 +7,13 @@ final class AppActionCoordinator: ObservableObject {
     static let shared = AppActionCoordinator()
 
     @Published private(set) var overviewScanRequest = 0
+    @Published private(set) var deepScanRequest = 0
+    @Published private(set) var deviceInfoRequest = 0
     @Published private(set) var trashReviewRequest = 0
     @Published private(set) var mainWindowRequest = 0
     private var hasPendingOverviewScan = false
+    private var hasPendingDeepScan = false
+    private var hasPendingDeviceInfo = false
     private var hasPendingTrashReview = false
     private var hasPendingMainWindow = false
     private weak var mainWindow: NSWindow?
@@ -58,6 +62,28 @@ final class AppActionCoordinator: ObservableObject {
     func consumeOverviewScanRequest() -> Bool {
         guard hasPendingOverviewScan else { return false }
         hasPendingOverviewScan = false
+        return true
+    }
+
+    func requestDeepScan() {
+        hasPendingDeepScan = true
+        deepScanRequest += 1
+    }
+
+    func consumeDeepScanRequest() -> Bool {
+        guard hasPendingDeepScan else { return false }
+        hasPendingDeepScan = false
+        return true
+    }
+
+    func requestDeviceInfo() {
+        hasPendingDeviceInfo = true
+        deviceInfoRequest += 1
+    }
+
+    func consumeDeviceInfoRequest() -> Bool {
+        guard hasPendingDeviceInfo else { return false }
+        hasPendingDeviceInfo = false
         return true
     }
 

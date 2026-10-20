@@ -76,16 +76,17 @@ struct ContentView: View {
                 // 居中模态：卸载残留 / 提示
                 modalLayer
 
-                // 删除成功：Vortex 撒花 × 2
-                CelebrationBanner(token: viewModel.celebrationToken)
-                    .zIndex(30)
-                    .allowsHitTesting(false)
-
             }
         }
         .navigationTitle("cleanMac")
         .overlay {
             ZStack {
+            // 覆盖整个主窗口，包含侧边栏；只响应新完成的清理。
+            CelebrationBanner(token: viewModel.celebrationToken)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .zIndex(30)
+
             if viewModel.showingDeleteConfirmation, let request = viewModel.deleteRequest {
                 TrashConfirmationOverlay(
                     request: request,
@@ -138,10 +139,18 @@ struct ContentView: View {
         .task {
             await viewModel.loadStartupSnapshot()
             handlePendingOverviewScan()
+            handlePendingDeepScan()
+            handlePendingDeviceInfo()
             handlePendingTrashReview()
         }
         .onChange(of: appActions.overviewScanRequest) { _ in
             handlePendingOverviewScan()
+        }
+        .onChange(of: appActions.deepScanRequest) { _ in
+            handlePendingDeepScan()
+        }
+        .onChange(of: appActions.deviceInfoRequest) { _ in
+            handlePendingDeviceInfo()
         }
         .onChange(of: appActions.trashReviewRequest) { _ in
             handlePendingTrashReview()
@@ -170,6 +179,20 @@ struct ContentView: View {
         guard appActions.consumeOverviewScanRequest() else { return }
         selectedTab = .dashboard
         Task { await viewModel.scanAll() }
+    }
+
+    private func handlePendingDeepScan() {
+        guard appActions.consumeDeepScanRequest() else { return }
+        selectedTab = .dashboard
+        startDeepSearch()
+    }
+
+    private func handlePendingDeviceInfo() {
+        guard appActions.consumeDeviceInfoRequest() else { return }
+        selectedTab = .deviceInfo
+        if deviceInformationViewModel.snapshot != nil {
+            deviceInformationViewModel.refresh()
+        }
     }
 
     private func handlePendingTrashReview() {

@@ -7,7 +7,7 @@
 	<key>NSAppDataUsageDescription</key>
 	<string>需要读取浏览器缓存和已卸载应用留下的数据目录。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>需要读取蓝牙控制器状态，以及已配对和已连接设备的信息，以在设备信息页面展示。</string>
+	<string>需要读取蓝牙控制器及已连接设备的信息和电量，以显示设备状态并在电量低时提醒充电。</string>
 	<key>NSLocationUsageDescription</key>
 	<string>需要定位权限以读取当前连接的 Wi-Fi 网络名称；位置信息不会保存或上传。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
