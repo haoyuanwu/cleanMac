@@ -10,6 +10,20 @@
 - **磁盘与设备信息**：查看空间分布、占用变化、设备信息，并设置空间增长与废纸篓提醒。
 - **每日定时扫描**：可修改扫描时间或关闭；定时任务只扫描，不自动删除文件。
 
+## 界面预览
+
+### 空间概览
+
+![cleanMac 空间概览与清理入口](docs/screenshots/overview.png)
+
+### 扫描结果
+
+![cleanMac 扫描后的空间统计与清理建议](docs/screenshots/scan-results.png)
+
+### 首次扫描后的自愿支持提示
+
+![cleanMac 支付宝和微信打赏弹窗](docs/screenshots/first-scan-support.png)
+
 ## 下载与安装
 
 从 [GitHub Releases](https://github.com/haoyuanwu/cleanMac/releases/latest) 下载最新的 `cleanMac.dmg`，打开后将 `cleanMac.app` 拖入“应用程序”文件夹。
