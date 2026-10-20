@@ -1,9 +1,42 @@
 import SwiftUI
 import AppKit
 
+@MainActor
+private final class MenuBarPopupWindowHolder {
+    weak var window: NSWindow?
+}
+
+private struct MenuBarPopupWindowReader: NSViewRepresentable {
+    let holder: MenuBarPopupWindowHolder
+
+    func makeNSView(context: Context) -> TrackingView {
+        TrackingView(holder: holder)
+    }
+
+    func updateNSView(_ nsView: TrackingView, context: Context) {}
+
+    final class TrackingView: NSView {
+        weak var holder: MenuBarPopupWindowHolder?
+
+        init(holder: MenuBarPopupWindowHolder) {
+            self.holder = holder
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            holder?.window = window
+        }
+    }
+}
+
 /// 菜单栏中的设备与空间速览。
 struct MenuBarStatusView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+    @State private var popupWindowHolder = MenuBarPopupWindowHolder()
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @State private var status: DeviceQuickStatus?
     @State private var isRefreshing = false
@@ -47,6 +80,7 @@ struct MenuBarStatusView: View {
         }
         .frame(width: 330, height: 570)
         .background(Theme.reviewCanvas(.blue))
+        .background(MenuBarPopupWindowReader(holder: popupWindowHolder))
         .task {
             await refresh()
             await trashMonitor.refresh()
@@ -295,6 +329,8 @@ struct MenuBarStatusView: View {
 
                 Button {
                     AppActionCoordinator.shared.requestOverviewScan()
+                    dismiss()
+                    popupWindowHolder.window?.orderOut(nil)
                     AppActionCoordinator.shared.showMainWindow { openWindow(id: "main") }
                 } label: {
                     Label("扫描清理", systemImage: "magnifyingglass")

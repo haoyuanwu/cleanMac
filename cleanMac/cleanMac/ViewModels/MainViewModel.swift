@@ -26,6 +26,7 @@ class MainViewModel: ObservableObject {
     @Published var overallProgress: Double = 0
     @Published private(set) var lastCompletedScanScope: ScanScope = .overview
     @Published var showingAlert = false
+    @Published var showingDonationPrompt = false
     @Published var alertMessage = ""
     @Published var alertTitle = ""
     @Published var isLoadingSystemInfo = true
@@ -107,6 +108,7 @@ class MainViewModel: ObservableObject {
     private var applicationsWaitingForPermission: [FileItem] = []
     private var isWaitingForAppManagementSettings = false
     private var scanAllTask: Task<Void, Never>?
+    private let donationPromptShownKey = "donationPromptShownAfterFirstScan"
     
     // MARK: - 计算属性
     
@@ -187,7 +189,7 @@ class MainViewModel: ObservableObject {
     // MARK: - Actions
     
     /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
-    func scanAll(scope: ScanScope = .overview) async {
+    func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = true) async {
         guard !isScanning else { return }
 
         scanState = .scanning
@@ -213,13 +215,29 @@ class MainViewModel: ObservableObject {
                 }
             }
 
+            if Task.isCancelled {
+                self.scanState = .completed
+                AppLog.info("scanAll cancelled")
+                return
+            }
+
             await MainActor.run {
                 self.scanState = .completed
                 self.lastCompletedScanScope = scope
                 AppLog.info("scanAll finished")
+                if showDonationAfterCompletion {
+                    self.presentFirstScanDonationPromptIfNeeded()
+                }
             }
         }
         await scanAllTask?.value
+    }
+
+    /// 仅在用户首次完成完整扫描后提示一次；定时扫描不会调用此方法。
+    func presentFirstScanDonationPromptIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: donationPromptShownKey) else { return }
+        UserDefaults.standard.set(true, forKey: donationPromptShownKey)
+        showingDonationPrompt = true
     }
 
     /// 取消概览清理扫描

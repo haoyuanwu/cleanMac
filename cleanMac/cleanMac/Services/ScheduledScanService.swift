@@ -153,7 +153,7 @@ final class ScheduledScanService: ObservableObject {
         UserDefaults.standard.set(now, forKey: lastStartedKey)
         AppLog.info("Scheduled overview scan started")
         Task {
-            await viewModel.scanAll()
+            await viewModel.scanAll(showDonationAfterCompletion: false)
             if viewModel.overallProgress >= 1 {
                 let completedAt = Date()
                 lastCompletedAt = completedAt

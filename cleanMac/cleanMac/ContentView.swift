@@ -126,6 +126,13 @@ struct ContentView: View {
                     .transition(.opacity)
                     .zIndex(120)
             }
+            if viewModel.showingDonationPrompt {
+                DonationOverlay {
+                    viewModel.showingDonationPrompt = false
+                }
+                .transition(.opacity)
+                .zIndex(130)
+            }
             }
         }
         .task {
@@ -179,7 +186,7 @@ struct ContentView: View {
         deepSearchStep = 0
         deepSearchStage = "正在扫描清理、文件整理与应用项目…"
         deepSearchTask = Task {
-            await viewModel.scanAll(scope: .deep)
+            await viewModel.scanAll(scope: .deep, showDonationAfterCompletion: false)
             guard !Task.isCancelled else { return }
 
             deepSearchStep = 1
@@ -193,6 +200,7 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             hasCompletedDeepSearch = true
+            viewModel.presentFirstScanDonationPromptIfNeeded()
             isDeepSearching = false
             deepSearchStep = 0
             deepSearchStage = ""

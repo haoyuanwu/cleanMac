@@ -1,0 +1,28 @@
+name: Build and publish DMG
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DMG
+        run: ./Scripts/make_dmg.sh
+      - name: Verify DMG
+        run: |
+          hdiutil verify build/cleanMac.dmg
+          shasum -a 256 build/cleanMac.dmg
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/cleanMac.dmg \
+            --title "cleanMac ${GITHUB_REF_NAME#v}" \
+            --notes "macOS 13.5 或更新版本。新增请我喝杯咖啡入口和首次手动完整扫描后的一次性提示；安装时打开 DMG，将 cleanMac.app 拖入应用程序。此安装包未使用 Developer ID 签名，也未进行 Apple 公证。"

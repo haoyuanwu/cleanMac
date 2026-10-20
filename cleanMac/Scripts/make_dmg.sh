@@ -23,10 +23,15 @@ ARCH_PATH="$ROOT/build/cleanMac.xcarchive"
 echo "==> 1/5 构建 $CONFIG"
 rm -rf "$DERIVED" "$STAGING"
 mkdir -p "$ROOT/build"
+BUILD_SETTINGS=()
+if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+  BUILD_SETTINGS+=(CODE_SIGNING_ALLOWED=NO)
+fi
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED" \
   -destination 'platform=macOS' \
+  "${BUILD_SETTINGS[@]}" \
   build | tail -n 20
 
 if [[ ! -d "$APP_PATH" ]]; then

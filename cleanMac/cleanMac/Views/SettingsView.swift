@@ -4,6 +4,7 @@ import AppKit
 /// 与扫描、清理相关的系统权限入口。
 struct SettingsView: View {
     @State private var isHistoryExpanded = false
+    @State private var showingDonation = false
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var scheduledScan = ScheduledScanService.shared
@@ -46,6 +47,11 @@ struct SettingsView: View {
                         aboutAppCard
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("支持开发", subtitle: "如果 cleanMac 帮到了你，欢迎请我喝杯咖啡。")
+                    donationCard
+                }
             }
             .frame(maxWidth: 960)
             .padding(.horizontal, 28)
@@ -55,6 +61,10 @@ struct SettingsView: View {
         }
         .navigationTitle("")
         .background(Theme.reviewCanvas(.blue))
+        .sheet(isPresented: $showingDonation) {
+            DonationView(onClose: { showingDonation = false })
+                .frame(width: 600)
+        }
     }
 
     private var settingsColumns: [GridItem] {
@@ -295,6 +305,28 @@ struct SettingsView: View {
                     Label("打开日志文件", systemImage: "arrow.up.right")
                 }
                 .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var donationCard: some View {
+        settingsCard {
+            HStack(spacing: 16) {
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Theme.accentGradient)
+                    .frame(width: 48, height: 48)
+                    .background(Theme.accentGradientSoft, in: RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("请我喝杯咖啡")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("自愿支持后续维护与功能更新，清理功能不会受影响。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button("查看打赏方式") { showingDonation = true }
+                    .buttonStyle(.borderedProminent)
             }
         }
     }
