@@ -16,46 +16,50 @@ struct DashboardView: View {
     @State private var appearProgress: CGFloat = 0
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                // 上：关键指标横排
-                topMetrics
-                    .padding(.bottom, 8)
+        VStack(spacing: 0) {
+            ChargeReminderBanner(horizontalPadding: 32)
+                .frame(maxWidth: 920)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // 上：关键指标横排
+                    topMetrics
+                        .padding(.bottom, 8)
 
-                // 中：圆环居中
-                ringStage
-                    .padding(.vertical, 8)
+                    // 中：圆环居中
+                    ringStage
+                        .padding(.vertical, 8)
 
-                // 下：智能清理 + 构成
-                bottomPanel
-                    .padding(.top, 8)
-
-                if hasDeepResults {
-                    deepResultsSection
-                        .padding(.top, 20)
-                }
-
-                if viewModel.hasOverviewScan {
-                    treemapSection
+                    // 下：智能清理 + 构成
+                    bottomPanel
                         .padding(.top, 8)
-                }
 
-                if viewModel.isScanning || isDeepSearching {
-                    segmentedProgress
-                        .frame(maxWidth: 480)
-                        .padding(.top, 20)
+                    if hasDeepResults {
+                        deepResultsSection
+                            .padding(.top, 20)
+                    }
+
+                    if viewModel.hasOverviewScan {
+                        treemapSection
+                            .padding(.top, 8)
+                    }
+
+                    if viewModel.isScanning || isDeepSearching {
+                        segmentedProgress
+                            .frame(maxWidth: 480)
+                            .padding(.top, 20)
+                    }
                 }
+                .padding(.horizontal, 32)
+                .padding(.top, 16)
+                .padding(.bottom, 40)
+                .frame(maxWidth: 920)
+                .frame(maxWidth: .infinity)
+                .opacity(appearProgress)
+                .offset(y: (1 - appearProgress) * 10)
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 16)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 920)
-            .frame(maxWidth: .infinity)
-            .opacity(appearProgress)
-            .offset(y: (1 - appearProgress) * 10)
-        }
-        .onAppear {
-            withAnimation(Theme.easeSlow) { appearProgress = 1 }
+            .onAppear {
+                withAnimation(Theme.easeSlow) { appearProgress = 1 }
+            }
         }
     }
 

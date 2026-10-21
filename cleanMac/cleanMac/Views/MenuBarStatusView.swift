@@ -76,6 +76,7 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ChargeReminderBanner()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header

@@ -10,6 +10,23 @@ final class BatteryAlertMonitor: ObservableObject {
 
     @Published private(set) var hasBatteryWarning = false
     @Published private(set) var mostUrgentLevel: Int?
+    @Published private(set) var visibleChargeWarnings: [ChargeWarning] = []
+
+    struct ChargeWarning: Identifiable {
+        let id: String
+        let name: String
+        let level: Int
+        let stage: Int
+    }
+
+    private var dismissedChargeStages: [String: Int] = [:]
+
+    func dismissChargeWarnings() {
+        for warning in visibleChargeWarnings {
+            dismissedChargeStages[warning.id] = warning.stage
+        }
+        visibleChargeWarnings = []
+    }
 
     private struct Reading {
         let macLevel: Int?
@@ -73,6 +90,22 @@ final class BatteryAlertMonitor: ObservableObject {
             + (reading.macOnBattery ? reading.macLevel.map { $0 < 20 ? [$0] : [] } ?? [] : [])
         mostUrgentLevel = lowLevels.min()
         hasBatteryWarning = !lowLevels.isEmpty
+
+        var warnings = reading.bluetoothDevices.compactMap { device -> ChargeWarning? in
+            guard let level = device.batteryLevel, level >= 0,
+                  let stage = Self.stage(for: level) else { return nil }
+            return ChargeWarning(id: "bluetooth.\(device.id)", name: device.name, level: level, stage: stage)
+        }
+        if reading.macOnBattery, let level = reading.macLevel, level >= 0,
+           let stage = Self.stage(for: level) {
+            warnings.append(ChargeWarning(id: "mac", name: "Mac", level: level, stage: stage))
+        }
+        // 恢复电量、接通电源或断开设备后清除关闭状态；进入更低档位时重新显示。
+        dismissedChargeStages = dismissedChargeStages.filter { id, _ in
+            warnings.contains { $0.id == id }
+        }
+        visibleChargeWarnings = warnings.filter { dismissedChargeStages[$0.id] != $0.stage }
+            .sorted { $0.level == $1.level ? $0.id < $1.id : $0.level < $1.level }
 
         if isEvaluating {
             pendingReading = reading
