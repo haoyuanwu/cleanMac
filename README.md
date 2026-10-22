@@ -112,7 +112,7 @@ RELEASE_COMMIT_MESSAGE="发布 v1.0.8：优化网速、设备仪表盘与充电�
 
 脚本自动递增构建号、更新版本号、生成并校验两个架构的 DMG，创建中文 Git 提交和版本标签，通过 SSH 原子推送到 GitHub，再等待 Actions 构建并上传两个安装包。发布完成时自动核对线上标签、版本说明和附件，并输出下载链接。Xcode 用户状态和本地构建产物不会加入提交。
 
-后续发布统一使用此脚本，校验由脚本和 Actions 自动执行。若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；GitHub Actions 的发布工作流使用仓库自带的 `github.token`。
+后续发布统一使用此脚本，校验由脚本和 Actions 自动执行。若提交完成后推送中断，运行 `./Scripts/publish_release.sh <版本号> --resume` 继续推送；若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；GitHub Actions 的发布工作流使用仓库自带的 `github.token`。
 
 ## 开发支持
 

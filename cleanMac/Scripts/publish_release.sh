@@ -8,7 +8,7 @@ APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(git -C "$APP_ROOT" rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 if [[ "${1:-}" = --help || "${1:-}" = -h ]]; then
-  echo '用法：./Scripts/publish_release.sh <版本号> [--wait-only]'
+  echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only]'
   echo '先编写 docs/releases/v<版本号>.md，按 1、2、3 编号。'
   echo '可用 RELEASE_COMMIT_MESSAGE 覆盖默认中文提交信息。'
   exit 0
@@ -16,11 +16,11 @@ fi
 VERSION="${1:?请传入版本号，例如 1.0.8}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '错误：版本号必须为 x.y.z' >&2; exit 1; }
 MODE="${2:-}"
-[[ -z "$MODE" || "$MODE" = --wait-only ]] || { echo '错误：未知选项' >&2; exit 1; }
+[[ -z "$MODE" || "$MODE" = --wait-only || "$MODE" = --resume ]] || { echo '错误：未知选项' >&2; exit 1; }
 TAG="v$VERSION"
 NOTES="$REPO_ROOT/docs/releases/$TAG.md"
 PROJECT="$APP_ROOT/cleanMac.xcodeproj/project.pbxproj"
-COMMIT_MESSAGE="${RELEASE_COMMIT_MESSAGE:-发布 $TAG：更新功能与体验优化}"
+COMMIT_MESSAGE="${RELEASE_COMMIT_MESSAGE:-发布 ${TAG}：更新功能与体验优化}"
 
 REMOTE_URL="$(git remote get-url origin)"
 REPOSITORY="$(python3 - "$REMOTE_URL" <<'PY'
@@ -32,7 +32,7 @@ PY
 )"
 PUSH_URL="git@github.com:$REPOSITORY.git"
 
-if [[ "$MODE" != --wait-only ]]; then
+if [[ -z "$MODE" ]]; then
   [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支发布' >&2; exit 1; }
   git diff --cached --quiet || { echo '错误：暂存区存在其他改动，请先处理后再发布' >&2; exit 1; }
   python3 - "$NOTES" "$COMMIT_MESSAGE" <<'PY'
@@ -85,7 +85,29 @@ PY
   git diff --cached --check
   echo '==> 创建中文提交和版本标签'
   git commit -m "$COMMIT_MESSAGE"
-  git tag -a "$TAG" -m "cleanMac $VERSION：详见 docs/releases/$TAG.md"
+fi
+if [[ "$MODE" != --wait-only ]]; then
+  if [[ "$MODE" = --resume ]]; then
+    [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支继续发布' >&2; exit 1; }
+    git diff --cached --quiet || { echo '错误：请先处理暂存区改动' >&2; exit 1; }
+    git diff --quiet -- "$APP_ROOT/cleanMac" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github" "$NOTES" || {
+      echo '错误：源码或发布文件发生变化，请先提交后再继续推送' >&2; exit 1;
+    }
+    git cat-file -e "HEAD:docs/releases/$TAG.md"
+    python3 - "$PROJECT" "$VERSION" <<'PYVERSION'
+from pathlib import Path
+import re,sys
+versions=re.findall(r'MARKETING_VERSION = ([^;]+);',Path(sys.argv[1]).read_text())
+if not versions or set(versions) != {sys.argv[2]}: raise SystemExit('错误：当前项目版本不匹配')
+PYVERSION
+  fi
+  if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+    [[ "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse HEAD)" ]] || {
+      echo '错误：现有标签指向其他提交，拒绝覆盖' >&2; exit 1;
+    }
+  else
+    git tag -a "$TAG" -m "cleanMac ${VERSION}：详见 docs/releases/$TAG.md"
+  fi
   echo '==> 原子推送代码与标签，触发 GitHub 双架构发布'
   git push --atomic "$PUSH_URL" HEAD:refs/heads/main "refs/tags/$TAG:refs/tags/$TAG"
 fi
