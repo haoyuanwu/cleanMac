@@ -1,36 +1,7 @@
 import SwiftUI
 import AppKit
 import Darwin
-
-private struct MenuBarMemorySample: Identifiable {
-    let id = Date()
-    let usedBytes: UInt64
-    let totalBytes: UInt64
-}
-
-private enum MenuBarMemoryReader {
-    static func sample() -> MenuBarMemorySample? {
-        var statistics = vm_statistics64_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &statistics) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
-            }
-        }
-        var pageSize: vm_size_t = 0
-        guard result == KERN_SUCCESS,
-              host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS else { return nil }
-
-        let total = ProcessInfo.processInfo.physicalMemory
-        let usedPages = UInt64(statistics.active_count)
-            + UInt64(statistics.wire_count)
-            + UInt64(statistics.compressor_page_count)
-        return MenuBarMemorySample(
-            usedBytes: min(total, usedPages * UInt64(pageSize)),
-            totalBytes: total
-        )
-    }
-}
+import Combine
 
 @MainActor
 private final class MenuBarPopupWindowHolder {
@@ -72,7 +43,6 @@ struct MenuBarStatusView: View {
     @ObservedObject private var mainViewModel = MainViewModel.shared
     @State private var status: DeviceQuickStatus?
     @State private var isRefreshing = false
-    @State private var memorySamples: [MenuBarMemorySample] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,7 +54,7 @@ struct MenuBarStatusView: View {
                     if let status {
                         storageCard(status)
                     }
-                    memoryCard
+                    NetworkSpeedCard(compact: true)
 
                     HStack(alignment: .top, spacing: 10) {
                         trashCard
@@ -115,22 +85,14 @@ struct MenuBarStatusView: View {
         .frame(width: 330, height: 570)
         .background(Theme.reviewCanvas(.blue))
         .background(MenuBarPopupWindowReader(holder: popupWindowHolder))
+        .onReceive(BatteryAlertMonitor.shared.$latestStatus.compactMap { $0 }) { status in
+            self.status = status
+        }
         .task {
             await refresh()
             await trashMonitor.refresh()
         }
-        .task {
-            memorySamples = []
-            while !Task.isCancelled {
-                if let sample = MenuBarMemoryReader.sample() {
-                    memorySamples.append(sample)
-                    if memorySamples.count > 30 {
-                        memorySamples.removeFirst(memorySamples.count - 30)
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-        }
+
     }
 
     private var header: some View {
@@ -183,84 +145,6 @@ struct MenuBarStatusView: View {
                 .accessibilityLabel("刷新设备状态")
             }
         }
-    }
-
-    private var memoryCard: some View {
-        let current = memorySamples.last
-        let used = current.map { FileSizeFormatter.string(fromByteCount: Int64($0.usedBytes)) } ?? "读取中…"
-        let total = current.map { FileSizeFormatter.string(fromByteCount: Int64($0.totalBytes)) } ?? "—"
-
-        return VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Label("内存变化趋势", systemImage: "memorychip")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.purple)
-                Spacer()
-                Text("最近 1 分钟")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(used)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                Text("/ \(total)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Spacer()
-                if let current, current.totalBytes > 0 {
-                    Text("\(Int((Double(current.usedBytes) / Double(current.totalBytes) * 100).rounded()))%")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundColor(.purple)
-                }
-            }
-
-            if memorySamples.count < 2 {
-                Text("正在采集内存使用量…")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 56)
-            } else {
-                memoryChart
-            }
-
-            Text("活跃、有线与压缩内存估算 · 弹窗打开后开始采样")
-                .font(.system(size: 9))
-                .foregroundColor(.secondary)
-        }
-        .padding(14)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.cardStroke))
-    }
-
-    private var memoryChart: some View {
-        let values = memorySamples.map { Double($0.usedBytes) / 1_000_000_000 }
-        let lower = max(0, (values.min() ?? 0) - 0.25)
-        let upper = (values.max() ?? 0) + 0.25
-        let span = max(upper - lower, 0.5)
-
-        return GeometryReader { geometry in
-            ZStack {
-                ForEach(0..<3) { index in
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.07))
-                        .frame(height: 1)
-                        .position(x: geometry.size.width / 2, y: geometry.size.height * CGFloat(index) / 2)
-                }
-                Path { path in
-                    for (index, value) in values.enumerated() {
-                        let x = geometry.size.width * CGFloat(index) / CGFloat(values.count - 1)
-                        let y = geometry.size.height * (1 - CGFloat((value - lower) / span))
-                        let point = CGPoint(x: x, y: y)
-                        if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-                    }
-                }
-                .stroke(Theme.accentGradient, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-            }
-        }
-        .frame(height: 56)
-        .accessibilityLabel("最近一分钟内存使用趋势，已采集 \(memorySamples.count) 个数据点")
     }
 
     private var trashCard: some View {
@@ -396,16 +280,21 @@ struct MenuBarStatusView: View {
         let level = status?.batteryLevel.map { Int(($0 * 100).rounded()) }
         let low = level.map { $0 < 20 } ?? false
         let needsCharge = low && status?.batteryState == "使用电池"
+        let charging = status?.batteryState == "正在充电"
         let subtitle: String
         if needsCharge, let level {
             subtitle = level <= 5 ? "电量告急，请立即充电" : level <= 10 ? "电量很低，请充电" : "电量低，请充电"
+        } else if charging {
+            subtitle = status?.chargingTimeEstimate.map {
+                $0 == "正在估算…" ? "正在估算充满时间…" : "充满还需\($0)"
+            } ?? "正在估算充满时间…"
         } else {
             subtitle = status?.batteryState ?? "正在读取设备状态"
         }
         return statusCard(
             title: "电池",
-            icon: low ? (level ?? 100) <= 5 ? "battery.0percent" : "battery.25percent" : "battery.100percent",
-            tint: low ? (level ?? 100) <= 10 ? .red : .orange : .green,
+            icon: charging ? "battery.100percent.bolt" : low ? (level ?? 100) <= 5 ? "battery.0percent" : "battery.25percent" : "battery.100percent",
+            tint: needsCharge ? (level ?? 100) <= 10 ? .red : .orange : .green,
             value: level.map { "\($0)%" } ?? "读取中…",
             subtitle: subtitle,
             height: 156
@@ -413,8 +302,9 @@ struct MenuBarStatusView: View {
     }
 
     private func bluetoothCard(_ status: DeviceQuickStatus?) -> some View {
+        let chargingDevice = status?.connectedBluetoothDevices.first { $0.isCharging == true }
         let lowBatteryDevices = (status?.connectedBluetoothDevices ?? []).compactMap { device -> (name: String, level: Int)? in
-            guard let level = device.batteryLevel, level < 20 else { return nil }
+            guard device.needsCharge, let level = device.batteryLevel else { return nil }
             return (device.name, level)
         }
         let chargePrompt: String? = lowBatteryDevices.first.map { first in
@@ -429,25 +319,36 @@ struct MenuBarStatusView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.indigo)
 
-            Text(status.map { $0.bluetoothState == "已开启" ? "已连接 \($0.connectedBluetoothDevices.count) 台" : $0.bluetoothState } ?? "读取中…")
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .lineLimit(1)
-
-            if let chargePrompt {
-                Label(chargePrompt, systemImage: "battery.25percent")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(warningTint)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .help(lowBatteryDevices.map { "\($0.name)：\($0.level)% · 请充电" }.joined(separator: "\n"))
-            } else {
-                Text(status?.connectedBluetoothDevices.first.map {
-                    "\($0.name)\($0.batteryLevel.map { " · \($0)%" } ?? "")"
-                } ?? (status == nil ? "正在读取设备状态" : "当前没有已连接设备"))
+            if let chargingDevice {
+                ChargingBatteryBadge(device: chargingDevice, fontSize: 22)
+                Text(chargingDevice.name)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(chargingDevice.name)
+            } else {
+                Text(status.map { $0.bluetoothState == "已开启" ? "已连接 \($0.connectedBluetoothDevices.count) 台" : $0.bluetoothState } ?? "读取中…")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+
+                if let chargePrompt {
+                    Label(chargePrompt, systemImage: "battery.25percent")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(warningTint)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .help(lowBatteryDevices.map { "\($0.name)：\($0.level)% · 请充电" }.joined(separator: "\n"))
+                } else {
+                    Text(status?.connectedBluetoothDevices.sorted {
+                        ($0.isCharging == true ? 0 : 1) < ($1.isCharging == true ? 0 : 1)
+                    }.first.map { "\($0.name) · \($0.batteryDescription)" }
+                        ?? (status == nil ? "正在读取设备状态" : "当前没有已连接设备"))
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
             }
         }
         .padding(12)
@@ -513,8 +414,8 @@ struct MenuBarStatusView: View {
     private func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        status = await Task.detached(priority: .utility) { DeviceInformationService.quickStatus() }.value
-        if let status { await BatteryAlertMonitor.shared.evaluate(status) }
+        await BatteryAlertMonitor.shared.poll()
+        status = BatteryAlertMonitor.shared.latestStatus
         isRefreshing = false
     }
 

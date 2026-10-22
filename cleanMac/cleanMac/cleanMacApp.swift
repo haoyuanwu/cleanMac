@@ -7,6 +7,7 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
         TrashMonitor.shared.start()
         BatteryAlertMonitor.shared.start()
         ScheduledScanService.shared.start()
+        NetworkSpeedStatusItem.shared.start()
     }
 }
 

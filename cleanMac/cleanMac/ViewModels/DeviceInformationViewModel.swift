@@ -9,57 +9,18 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
     @Published private(set) var locationStatus: CLAuthorizationStatus
     @Published private(set) var didRequestWiFiNameAccess = false
     @Published private(set) var locationRequestIssue: String?
-    /// 实时网速（1s 采样）
-    @Published private(set) var networkThroughput: NetworkThroughput = .zero
-
     private let locationManager = CLLocationManager()
     private var refreshAfterLoading = false
-    private var speedTimer: Timer?
+    private var batterySubscription: AnyCancellable?
 
     override init() {
         locationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
-    }
-
-    deinit {
-        // Timer 在主线程 runloop，invalidate 在 start/stop 管理
-    }
-
-    func startNetworkMonitor() {
-        guard speedTimer == nil else { return }
-        let box = CounterBox()
-        box.value = NetworkSpeedService.readCounters()
-        box.date = Date()
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let now = Date()
-                let current = NetworkSpeedService.readCounters()
-                self.networkThroughput = NetworkSpeedService.throughput(
-                    from: box.value,
-                    to: current,
-                    seconds: now.timeIntervalSince(box.date)
-                )
-                box.value = current
-                box.date = now
-            }
-        }
-        timer.tolerance = 0.15
-        RunLoop.main.add(timer, forMode: .common)
-        speedTimer = timer
-    }
-
-    func stopNetworkMonitor() {
-        speedTimer?.invalidate()
-        speedTimer = nil
-        networkThroughput = .zero
-    }
-
-    private final class CounterBox: @unchecked Sendable {
-        var value: NetworkByteCounters = .init(rx: 0, tx: 0)
-        var date = Date()
+        batterySubscription = BatteryAlertMonitor.shared.$latestStatus
+            .compactMap { $0 }
+            .sink { [weak self] status in self?.applyLivePowerStatus(status) }
     }
 
     func loadIfNeeded() {
@@ -73,19 +34,39 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
             return
         }
         isLoading = true
-        startNetworkMonitor()
         Task {
             let result = await Task.detached(priority: .utility) {
                 DeviceInformationService.load()
             }.value
             snapshot = result
+            if let status = BatteryAlertMonitor.shared.latestStatus,
+               status.capturedAt >= result.capturedAt {
+                applyLivePowerStatus(status)
+            }
             isLoading = false
-            await BatteryAlertMonitor.shared.evaluate(result)
+            if let snapshot { await BatteryAlertMonitor.shared.evaluate(snapshot) }
             if refreshAfterLoading {
                 refreshAfterLoading = false
                 refresh()
             }
         }
+    }
+
+    private func applyLivePowerStatus(_ status: DeviceQuickStatus) {
+        guard let previous = snapshot else { return }
+        snapshot = DeviceInfoSnapshot(
+            device: previous.device,
+            software: previous.software,
+            battery: status.batteryFields,
+            batteryLevel: status.batteryLevel,
+            wifi: previous.wifi,
+            network: previous.network,
+            bluetooth: previous.bluetooth,
+            connectedBluetoothDevices: status.connectedBluetoothDevices,
+            storage: previous.storage,
+            storageUsedFraction: previous.storageUsedFraction,
+            capturedAt: previous.capturedAt
+        )
     }
 
     func requestWiFiNameAccess() {

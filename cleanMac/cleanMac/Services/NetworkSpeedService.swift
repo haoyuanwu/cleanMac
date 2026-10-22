@@ -54,6 +54,8 @@ enum NetworkSpeedService {
             let flags = Int32(current.pointee.ifa_flags)
             // 仅统计已启用的非回环接口
             guard (flags & IFF_UP) != 0, (flags & IFF_LOOPBACK) == 0 else { continue }
+            // getifaddrs 同时返回地址条目；只在链路层条目读取一次网卡计数。
+            guard current.pointee.ifa_addr?.pointee.sa_family == UInt8(AF_LINK) else { continue }
             guard let dataPtr = current.pointee.ifa_data else { continue }
 
             let data = dataPtr.assumingMemoryBound(to: if_data.self).pointee
@@ -81,8 +83,21 @@ enum NetworkSpeedService {
 /// 持续采样网速（1 秒一次）
 @MainActor
 final class NetworkSpeedMonitor: ObservableObject {
+    static let shared = NetworkSpeedMonitor()
+    private var consumers = Set<String>()
+
+    func acquire(_ consumer: String) {
+        consumers.insert(consumer)
+        start()
+    }
+
+    func release(_ consumer: String) {
+        consumers.remove(consumer)
+        if consumers.isEmpty { stop() }
+    }
     @Published private(set) var throughput: NetworkThroughput = .zero
     @Published private(set) var isActive = false
+    @Published private(set) var history: [NetworkThroughput] = []
 
     private var timer: Timer?
     private var lastCounters: NetworkByteCounters?
@@ -91,6 +106,8 @@ final class NetworkSpeedMonitor: ObservableObject {
     func start() {
         guard timer == nil else { return }
         isActive = true
+        throughput = .zero
+        history = []
         lastCounters = NetworkSpeedService.readCounters()
         lastDate = Date()
 
@@ -108,6 +125,9 @@ final class NetworkSpeedMonitor: ObservableObject {
         timer?.invalidate()
         timer = nil
         isActive = false
+        throughput = .zero
+        lastCounters = nil
+        lastDate = nil
     }
 
     private func tick() {
@@ -116,6 +136,8 @@ final class NetworkSpeedMonitor: ObservableObject {
         if let lastCounters, let lastDate {
             let seconds = now.timeIntervalSince(lastDate)
             throughput = NetworkSpeedService.throughput(from: lastCounters, to: current, seconds: seconds)
+            history.append(throughput)
+            if history.count > 60 { history.removeFirst(history.count - 60) }
         }
         lastCounters = current
         lastDate = now

@@ -3,6 +3,7 @@ import AppKit
 
 /// 与扫描、清理相关的系统权限入口。
 struct SettingsView: View {
+    @AppStorage("com.cleanMac.showMenuBarNetworkSpeed") private var showMenuBarNetworkSpeed = false
     @State private var isHistoryExpanded = false
     @State private var showingDonation = false
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
@@ -38,6 +39,28 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     sectionHeader("定时任务", subtitle: "安排每天自动扫描的时间。")
                     scheduledScanCard
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("状态栏", subtitle: "选择直接显示在 Mac 状态栏中的信息。")
+                    settingsCard {
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("单独显示实时网速")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("在状态栏单独显示下载与上传速度，每秒刷新。关闭时仍可在状态栏弹窗中查看。")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Toggle("单独显示实时网速", isOn: $showMenuBarNetworkSpeed)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 12) {

@@ -5,6 +5,7 @@ import CoreLocation
 struct DeviceInformationView: View {
     @ObservedObject var viewModel: DeviceInformationViewModel
     @State private var copiedFieldID: String?
+    @State private var showSystemDetails = false
 
     var body: some View {
         ScrollView {
@@ -78,87 +79,142 @@ struct DeviceInformationView: View {
     }
 
     private func overviewCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        let name = value(for: "设备名称", in: snapshot.device)
-        let model = value(for: "机型标识", in: snapshot.device)
-        let chip = value(for: "芯片", in: snapshot.device)
-
-        return HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 22, weight: .medium))
-                .foregroundColor(.white)
-                .frame(width: 48, height: 48)
-                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 13))
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(name)
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text("\(model)  ·  \(chip)")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineLimit(2)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 12) {
+                Image(systemName: "laptopcomputer")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(Theme.accentGradient)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(value(for: "设备名称", in: snapshot.device))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(value(for: "机型标识", in: snapshot.device))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Label("实时监测", systemImage: "waveform.path")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)], alignment: .leading, spacing: 14) {
+                identityMetric("芯片", value: value(for: "芯片", in: snapshot.device))
+                identityMetric("物理内存", value: value(for: "内存", in: snapshot.device))
+                identityMetric("可用存储", value: value(for: "可用空间", in: snapshot.storage))
+                identityMetric("电源状态", value: value(for: "状态", in: snapshot.battery))
+            }
         }
-        .foregroundColor(.white)
-        .padding(16)
+        .padding(.vertical, 8)
+    }
+
+    private func identityMetric(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 15, weight: .semibold, design: .rounded))
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .padding(.leading, 12)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1).fill(Theme.accentGradient).frame(width: 2)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.18, green: 0.43, blue: 0.91), Color(red: 0.32, green: 0.62, blue: 0.87)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-        )
-        .elevatedShadow()
     }
 
     private func categoryColumns(_ snapshot: DeviceInfoSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 26) {
+            sectionTitle("实时性能", subtitle: "最近一分钟 · 随设备状态更新")
+            dashboardBand {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 24) {
+                        networkSpeedCard(snapshot)
+                            .frame(maxWidth: .infinity)
+                        Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1, height: 220)
+                        DeviceMemoryTrendCard(embedded: true).frame(width: 260)
+                    }
+                    .frame(minWidth: 620)
+                    VStack(spacing: 24) {
+                        networkSpeedCard(snapshot)
+                        Divider()
+                        DeviceMemoryTrendCard(embedded: true)
+                    }
+                }
+            }
+            sectionTitle("能量与空间", subtitle: "电池状态与磁盘容量")
+            dashboardBand {
+                dashboardPair {
+                    batteryCard(snapshot)
+                } right: {
+                    storageCard(snapshot)
+                }
+            }
+            sectionTitle("连接状态", subtitle: "无线网络与已连接外设")
+            dashboardBand {
+                dashboardPair {
+                    wifiCard(snapshot)
+                } right: {
+                    bluetoothCard(snapshot)
+                }
+            }
+            DisclosureGroup(isExpanded: $showSystemDetails) {
+                dashboardBand {
+                    dashboardPair {
+                        infoCard("硬件信息", icon: "desktopcomputer", tint: .blue, fields: snapshot.device)
+                    } right: {
+                        infoCard("软件信息", icon: "app.badge", tint: .purple, fields: snapshot.software)
+                    }
+                }
+                .padding(.top, 12)
+            } label: {
+                sectionTitle("系统档案", subtitle: "查看硬件与软件明细")
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String, subtitle: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.system(size: 15, weight: .bold))
+            Spacer(minLength: 8)
+            Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+
+    private func dashboardBand<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surfaceRaised.opacity(0.78), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func dashboardPair<Left: View, Right: View>(
+        @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right
+    ) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 14) {
-                categoryColumnLeft(snapshot)
-                categoryColumnRight(snapshot)
+            HStack(alignment: .top, spacing: 28) {
+                left().frame(maxWidth: .infinity, alignment: .topLeading)
+                right().frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(minWidth: 620)
-
-            VStack(spacing: 14) {
-                categoryColumnLeft(snapshot)
-                categoryColumnRight(snapshot)
+            .frame(minWidth: 600)
+            VStack(alignment: .leading, spacing: 24) {
+                left()
+                Divider()
+                right()
             }
         }
-    }
-
-    private func categoryColumnLeft(_ snapshot: DeviceInfoSnapshot) -> some View {
-        VStack(spacing: 14) {
-            infoCard("硬件信息", icon: "desktopcomputer", tint: .blue, fields: snapshot.device)
-            batteryCard(snapshot)
-            wifiCard(snapshot)
-            networkSpeedCard(snapshot)
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private func categoryColumnRight(_ snapshot: DeviceInfoSnapshot) -> some View {
-        VStack(spacing: 14) {
-            infoCard("软件信息", icon: "app.badge", tint: .purple, fields: snapshot.software)
-            storageCard(snapshot)
-            bluetoothCard(snapshot)
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func batteryCard(_ snapshot: DeviceInfoSnapshot) -> some View {
         let level = snapshot.batteryLevel.map { Int(($0 * 100).rounded()) }
         let isLow = level.map { $0 < 20 } ?? false
         let isOnBattery = snapshot.battery.first(where: { $0.label == "状态" })?.value == "使用电池"
+        let isCharging = snapshot.battery.first(where: { $0.label == "状态" })?.value == "正在充电"
         let warningTint: Color = (level ?? 100) <= 10 ? .red : .orange
+        let tint: Color = isLow && isOnBattery ? warningTint : .green
 
         return VStack(alignment: .leading, spacing: 10) {
-            cardHeader("电池", icon: isLow ? "battery.25percent" : "battery.100percent", tint: isLow ? warningTint : .green)
+            cardHeader("电池", icon: isCharging ? "battery.100percent.bolt" : isLow ? "battery.25percent" : "battery.100percent", tint: tint)
             if let level = snapshot.batteryLevel {
-                progressSummary(value: "\(Int((level * 100).rounded()))%", fraction: level, tint: isLow ? warningTint : .green)
+                DeviceCapacityGauge(fraction: level, tint: tint, title: isCharging ? "正在充电" : isOnBattery ? "使用电池" : "电源已连接", subtitle: snapshot.battery.first { $0.label == "充满还需" }.map { "充满还需\($0.value)" } ?? "当前剩余电量")
             }
             if isLow && isOnBattery {
                 Label((level ?? 100) <= 5 ? "电脑电量告急，请立即充电" : "电脑电量低，请及时充电", systemImage: "battery.25percent")
@@ -167,65 +223,26 @@ struct DeviceInformationView: View {
             }
             fieldList(snapshot.battery.filter { $0.label != "电量" }, section: "电池")
         }
-        .modifier(InfoCardStyle())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func storageCard(_ snapshot: DeviceInfoSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             cardHeader("存储", icon: "internaldrive.fill", tint: .orange)
             if let fraction = snapshot.storageUsedFraction {
-                progressSummary(value: "已用 \(Int((fraction * 100).rounded()))%", fraction: fraction, tint: .orange)
+                DeviceCapacityGauge(fraction: fraction, tint: .orange, title: "磁盘已使用", subtitle: "剩余空间 \(value(for: "可用空间", in: snapshot.storage))")
             }
             fieldList(snapshot.storage, section: "存储")
         }
-        .modifier(InfoCardStyle())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func networkSpeedCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 12) {
-                cardHeader("网络速度", icon: "network", tint: .blue)
-
-                HStack(spacing: 18) {
-                    speedCell(
-                        title: "下载",
-                        value: viewModel.networkThroughput.downloadText,
-                        systemImage: "arrow.down.circle.fill",
-                        tint: .blue
-                    )
-                    speedCell(
-                        title: "上传",
-                        value: viewModel.networkThroughput.uploadText,
-                        systemImage: "arrow.up.circle.fill",
-                        tint: .green
-                    )
-                    Spacer(minLength: 0)
-                    Text("每秒刷新")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                fieldList(snapshot.network, section: "网络")
-            }
-        }
-    }
-
-    private func speedCell(title: String, value: String, systemImage: String, tint: Color) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16))
-                .foregroundColor(tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(value)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .animation(.easeOut(duration: 0.2), value: value)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        NetworkSpeedCard(
+            embedded: true,
+            downloadedTotal: value(for: "累计下载", in: snapshot.network),
+            uploadedTotal: value(for: "累计上传", in: snapshot.network)
+        )
     }
 
     private func wifiCard(_ snapshot: DeviceInfoSnapshot) -> some View {
@@ -236,7 +253,7 @@ struct DeviceInformationView: View {
                 wifiNameHelp
             }
         }
-        .modifier(InfoCardStyle())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -290,7 +307,7 @@ struct DeviceInformationView: View {
     }
 
     private func bluetoothCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        let lowCount = snapshot.connectedBluetoothDevices.filter { ($0.batteryLevel ?? 100) < 20 }.count
+        let lowCount = snapshot.connectedBluetoothDevices.filter(\.needsCharge).count
 
         return VStack(alignment: .leading, spacing: 10) {
             cardHeader("蓝牙", icon: "wave.3.right", tint: .indigo)
@@ -302,7 +319,7 @@ struct DeviceInformationView: View {
             fieldList(snapshot.bluetooth, section: "蓝牙")
             connectedDeviceList(snapshot.connectedBluetoothDevices)
         }
-        .modifier(InfoCardStyle())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func infoCard(_ title: String, icon: String, tint: Color, fields: [DeviceInfoField]) -> some View {
@@ -310,7 +327,7 @@ struct DeviceInformationView: View {
             cardHeader(title, icon: icon, tint: tint)
             fieldList(fields, section: title)
         }
-        .modifier(InfoCardStyle())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func cardHeader(_ title: String, icon: String, tint: Color) -> some View {
@@ -322,24 +339,6 @@ struct DeviceInformationView: View {
                 .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-        }
-    }
-
-    private func progressSummary(value: String, fraction: Double, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(value)
-                .font(.system(size: 19, weight: .bold, design: .rounded))
-                .monospacedDigit()
-            GeometryReader { geometry in
-                Capsule()
-                    .fill(tint.opacity(0.12))
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(tint.gradient)
-                            .frame(width: geometry.size.width * min(1, max(0, fraction)))
-                    }
-            }
-            .frame(height: 6)
         }
     }
 
@@ -412,7 +411,7 @@ struct DeviceInformationView: View {
                     .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
             } else {
                 ForEach(devices) { device in
-                    let isLow = (device.batteryLevel ?? 100) < 20
+                    let isLow = device.needsCharge
                     let tint: Color = (device.batteryLevel ?? 100) <= 10 ? .red : .orange
                     HStack(spacing: 10) {
                         Image(systemName: "hifispeaker.fill")
@@ -423,8 +422,10 @@ struct DeviceInformationView: View {
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(2)
                         Spacer(minLength: 8)
-                        if let level = device.batteryLevel {
-                            Label(isLow ? "\(level)% · 请充电" : "\(level)%", systemImage: isLow ? "battery.25percent" : "battery.100percent")
+                        if device.isCharging == true {
+                            ChargingBatteryBadge(device: device)
+                        } else if device.batteryLevel != nil || device.isConnectedViaUSB {
+                            Label(device.batteryDescription, systemImage: device.isCharging == true ? "battery.100percent.bolt" : isLow ? "battery.25percent" : "battery.100percent")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(isLow ? tint : .green)
                         } else {
@@ -444,14 +445,4 @@ struct DeviceInformationView: View {
         fields.first(where: { $0.label == label })?.value ?? "未提供"
     }
 
-}
-
-private struct InfoCardStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.cardStroke))
-    }
 }

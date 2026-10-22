@@ -102,6 +102,18 @@ sudo spctl --global-enable
 
 配置发布证书与已存入钥匙串的公证凭据后，可运行 `CODESIGN_IDENTITY="Developer ID Application: ..." NOTARY_KEYCHAIN_PROFILE="配置名称" ./Scripts/make_dmg.sh`，生成签名并公证的两个安装包。公证完成后脚本还会验证公证票据和 Gatekeeper 评估结果。
 
+## 发布新版本
+
+先创建 `docs/releases/v<版本号>.md`，按 `1. `、`2. `、`3. ` 编写本版实际更新内容。在 `main` 分支的 `cleanMac` 目录运行：
+
+```bash
+RELEASE_COMMIT_MESSAGE="发布 v1.0.8：优化网速、设备仪表盘与充电状态" ./Scripts/publish_release.sh 1.0.8
+```
+
+脚本自动递增构建号、更新版本号、生成并校验两个架构的 DMG，创建中文 Git 提交和版本标签，通过 SSH 原子推送到 GitHub，再等待 Actions 构建并上传两个安装包。发布完成时自动核对线上标签、版本说明和附件，并输出下载链接。Xcode 用户状态和本地构建产物不会加入提交。
+
+后续发布统一使用此脚本，校验由脚本和 Actions 自动执行。若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；GitHub Actions 的发布工作流使用仓库自带的 `github.token`。
+
 ## 开发支持
 
 首次完成手动完整扫描后，应用会展示一次自愿打赏提示；之后仍可从“设置 → 开发支持 → 请我喝杯咖啡”查看。打赏不影响任何清理功能。

@@ -76,6 +76,37 @@ struct CategoryDetailView: View {
         return filtered
     }
 
+    private var sortControls: some View {
+        HStack(spacing: 3) {
+            ForEach(SortOption.allCases, id: \.self) { option in
+                Button {
+                    withAnimation(Theme.ease) { sortBy = option }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(size: 12, weight: sortBy == option ? .semibold : .medium))
+                        .foregroundStyle(sortBy == option ? Color.white : Color.secondary)
+                        .padding(.horizontal, 9)
+                        .frame(height: 30)
+                        .background {
+                            if sortBy == option {
+                                RoundedRectangle(cornerRadius: 7).fill(Theme.accentGradient)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(sortBy == option ? .isSelected : [])
+                .help(option.rawValue)
+            }
+        }
+        .padding(3)
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06)))
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("文件排序")
+    }
+
     private func normalizedSearchText(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }
@@ -407,7 +438,7 @@ struct CategoryDetailView: View {
             }
 
             // 工具栏
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 if isSearchExpanded {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -433,7 +464,8 @@ struct CategoryDetailView: View {
                         .help("关闭搜索")
                     }
                     .padding(.horizontal, 12)
-                    .frame(width: 260, height: 36)
+                    .frame(minWidth: 150, idealWidth: 220, maxWidth: 260)
+                    .frame(height: 36)
                     .background(Theme.surfaceRaised)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(
@@ -460,6 +492,8 @@ struct CategoryDetailView: View {
                     .help("搜索文件")
                     .accessibilityLabel("搜索文件")
                 }
+
+                sortControls
 
                 Text("\(sortedFiles.count) 个\(category.itemUnit)")
                     .font(.system(size: 13, design: .rounded))
@@ -488,39 +522,6 @@ struct CategoryDetailView: View {
 
                 Spacer()
 
-                Menu {
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Button {
-                            withAnimation(Theme.ease) { sortBy = option }
-                        } label: {
-                            if sortBy == option {
-                                Label(option.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(option.rawValue)
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: sortBy.icon)
-                            .font(.system(size: 13))
-                        Text(sortBy.rawValue)
-                            .fixedSize(horizontal: true, vertical: false)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Theme.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 12)

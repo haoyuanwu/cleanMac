@@ -27,6 +27,18 @@ struct BluetoothConnectedDevice: Identifiable, Sendable {
     let id: String
     let name: String
     let batteryLevel: Int?
+    let isCharging: Bool?
+    let isConnectedViaUSB: Bool
+
+    var needsCharge: Bool { isCharging != true && !isConnectedViaUSB && (batteryLevel ?? 100) < 20 }
+
+    var batteryDescription: String {
+        let level = batteryLevel.map { "\($0)%" }
+        if isCharging == true { return [level, "正在充电"].compactMap { $0 }.joined(separator: " · ") }
+        if isConnectedViaUSB { return [level, "已连接电源"].compactMap { $0 }.joined(separator: " · ") }
+        if let level { return needsCharge ? "\(level) · 请充电" : level }
+        return "电量未提供"
+    }
 }
 
 struct DeviceQuickStatus: Sendable {
@@ -35,6 +47,12 @@ struct DeviceQuickStatus: Sendable {
     let totalBytes: Int64
     let batteryLevel: Double?
     let batteryState: String
+    let batteryFields: [DeviceInfoField]
+
+    var chargingTimeEstimate: String? {
+        guard batteryState == "正在充电" else { return nil }
+        return batteryFields.first { $0.label == "充满还需" }?.value
+    }
     let wifiState: String
     let wifiName: String?
     let bluetoothState: String
@@ -65,6 +83,7 @@ enum DeviceInformationService {
             totalBytes: total,
             batteryLevel: battery.level,
             batteryState: fieldValue("状态", in: battery.fields) ?? "未检测到电池",
+            batteryFields: battery.fields,
             wifiState: fieldValue("状态", in: wifi) ?? "未检测到",
             wifiName: fieldValue("网络名称", in: wifi).flatMap { $0 == "未提供" ? nil : $0 },
             bluetoothState: fieldValue("状态", in: bluetooth.fields) ?? "未检测到",
@@ -141,8 +160,16 @@ enum DeviceInformationService {
         let descriptions = sources.compactMap {
             IOPSGetPowerSourceDescription(info, $0)?.takeUnretainedValue() as? [String: Any]
         }
-        guard let description = descriptions.first(where: { ($0[kIOPSTypeKey] as? String) == kIOPSInternalBatteryType }),
-              let current = description[kIOPSCurrentCapacityKey] as? Int,
+        guard let description = descriptions.first(where: { ($0[kIOPSTypeKey] as? String) == kIOPSInternalBatteryType }) else {
+            return ([.init(label: "电池", value: "未检测到电池")], nil)
+        }
+        return batteryReading(description: description, details: batteryDetails() ?? [])
+    }
+
+    nonisolated private static func batteryReading(
+        description: [String: Any], details: [DeviceInfoField]
+    ) -> (fields: [DeviceInfoField], level: Double?) {
+        guard let current = description[kIOPSCurrentCapacityKey] as? Int,
               let maximum = description[kIOPSMaxCapacityKey] as? Int,
               maximum > 0 else {
             return ([.init(label: "电池", value: "未检测到电池")], nil)
@@ -153,20 +180,24 @@ enum DeviceInformationService {
         let isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
         let isCharged = description[kIOPSIsChargedKey] as? Bool ?? false
         let isAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-        let state = isCharging ? "正在充电" : (isCharged ? "已充满" : (isAC ? "已连接电源" : "使用电池"))
+        let state = isCharging ? "正在充电" : (isAC ? (isCharged ? "已充满" : "已连接电源，未充电") : "使用电池")
         var fields: [DeviceInfoField] = [
             .init(label: "电量", value: "\(percentage)%"),
             .init(label: "状态", value: state),
             .init(label: "供电", value: isAC ? "电源适配器" : "电池")
         ]
 
-        if let details = batteryDetails() {
-            fields.append(contentsOf: details)
-        }
+        fields.append(contentsOf: details)
 
         let timeKey = isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
-        if let minutes = description[timeKey] as? Int, minutes > 0 {
-            fields.append(.init(label: isCharging ? "充满还需" : "预计剩余", value: "\(minutes / 60) 小时 \(minutes % 60) 分钟"))
+        if isCharging || !isAC {
+            if let minutes = description[timeKey] as? Int, minutes > 0, minutes < 65535 {
+                let duration = minutes < 60 ? "\(minutes) 分钟"
+                    : minutes % 60 == 0 ? "\(minutes / 60) 小时" : "\(minutes / 60) 小时 \(minutes % 60) 分钟"
+                fields.append(.init(label: isCharging ? "充满还需" : "预计剩余", value: "约 \(duration)"))
+            } else if isCharging {
+                fields.append(.init(label: "充满还需", value: "正在估算…"))
+            }
         }
         return (fields, level)
     }
@@ -225,14 +256,21 @@ enum DeviceInformationService {
         }
         let enabled = controller.powerState == kBluetoothHCIPowerStateON
         let paired = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
-        let connected = paired.filter { $0.isConnected() }
-        let batteryLevels = bluetoothBatteryLevels()
+        let batteryReadings = bluetoothBatteryReadings()
+        let connected = paired.filter { device in
+            device.isConnected() || device.addressString.flatMap {
+                batteryReadings[normalizedAddress($0)]?.isConnectedViaUSB
+            } == true
+        }
         let devices = connected.enumerated().map { index, device in
             let address = device.addressString
+            let reading = address.flatMap { batteryReadings[normalizedAddress($0)] }
             return BluetoothConnectedDevice(
                 id: address ?? "device-\(index)",
                 name: display(device.name),
-                batteryLevel: address.flatMap { batteryLevels[normalizedAddress($0)] }
+                batteryLevel: reading?.level,
+                isCharging: reading?.isCharging,
+                isConnectedViaUSB: reading?.isConnectedViaUSB ?? false
             )
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let fields: [DeviceInfoField] = [
@@ -249,8 +287,14 @@ enum DeviceInformationService {
     }
 
     /// 仅使用与蓝牙地址能精确匹配的 HID 电量，避免把别的设备电量错配过来。
-    nonisolated private static func bluetoothBatteryLevels() -> [String: Int] {
-        var levels: [String: Int] = [:]
+    private struct BluetoothBatteryReading {
+        var level: Int?
+        var isCharging: Bool?
+        var isConnectedViaUSB: Bool
+    }
+
+    nonisolated private static func bluetoothBatteryReadings() -> [String: BluetoothBatteryReading] {
+        var readings: [String: BluetoothBatteryReading] = [:]
         for serviceClass in ["AppleDeviceManagementHIDEventService", "IOHIDDevice"] {
             guard let matching = IOServiceMatching(serviceClass) else { continue }
             var iterator: io_iterator_t = 0
@@ -261,18 +305,40 @@ enum DeviceInformationService {
                 defer { IOObjectRelease(service) }
                 var properties: Unmanaged<CFMutableDictionary>?
                 guard IORegistryEntryCreateCFProperties(service, &properties, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-                      let values = properties?.takeRetainedValue() as? [String: Any],
-                      let level = values["BatteryPercent"] as? Int,
-                      (0...100).contains(level) else { continue }
+                      let values = properties?.takeRetainedValue() as? [String: Any] else { continue }
+
+                let level = (values["BatteryPercent"] as? Int).flatMap { (0...100).contains($0) ? $0 : nil }
+                var charging = (values["IsCharging"] as? Bool)
+                    ?? (values[kIOPSIsChargingKey] as? Bool)
+                    ?? (values["BatteryIsCharging"] as? Bool)
+                // Apple 外设的 HID 电池报告：已观测的 3 为充电，0 为未充电。
+                // 不把未知标志位或单纯 USB 连接猜测为“正在充电”。
+                if charging == nil, let vendor = values["VendorID"] as? Int,
+                   [76, 1452].contains(vendor),
+                   let flags = values["BatteryStatusFlags"] as? Int {
+                    if flags == 3 { charging = true }
+                    if flags == 0 { charging = false }
+                }
+                let wired = values["Transport"] as? String == "USB"
+                guard level != nil || charging != nil else { continue }
 
                 let address = (values["DeviceAddress"] as? String)
                     ?? (values["SerialNumber"] as? String)
                 if let address {
                     let key = normalizedAddress(address)
-                    if key.count == 12 { levels[key] = level }
+                    if key.count == 12 {
+                        let previous = readings[key]
+                        // 优先使用 USB 报告，避免蓝牙旧记录覆盖插线后的充电状态。
+                        if previous?.isConnectedViaUSB == true && !wired { continue }
+                        readings[key] = BluetoothBatteryReading(
+                            level: level ?? previous?.level,
+                            isCharging: charging ?? previous?.isCharging,
+                            isConnectedViaUSB: wired
+                        )
+                    }
                 }
             }
         }
-        return levels
+        return readings
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UserNotifications
+import IOKit.ps
 
 /// 在电量首次进入 20%、10%、5% 档位时提醒；恢复后允许下一次下降重新提醒。
 @MainActor
@@ -11,6 +12,7 @@ final class BatteryAlertMonitor: ObservableObject {
     @Published private(set) var hasBatteryWarning = false
     @Published private(set) var mostUrgentLevel: Int?
     @Published private(set) var visibleChargeWarnings: [ChargeWarning] = []
+    @Published private(set) var latestStatus: DeviceQuickStatus?
 
     struct ChargeWarning: Identifiable {
         let id: String
@@ -44,6 +46,9 @@ final class BatteryAlertMonitor: ObservableObject {
     private let stagesKey = "com.cleanMac.batteryAlerts.notifiedStages"
     private var notifiedStages: [String: Int]
     private var timer: Timer?
+    private var powerSourceNotification: CFRunLoopSource?
+    private var isPolling = false
+    private var pollAgain = false
     private var isEvaluating = false
     private var pendingReading: Reading?
 
@@ -53,6 +58,12 @@ final class BatteryAlertMonitor: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
+        if let source = IOPSNotificationCreateRunLoopSource({ _ in
+            Task { @MainActor in await BatteryAlertMonitor.shared.poll() }
+        }, nil)?.takeRetainedValue() {
+            powerSourceNotification = source
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        }
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.poll() }
         }
@@ -63,10 +74,22 @@ final class BatteryAlertMonitor: ObservableObject {
     }
 
     func poll() async {
-        let status = await Task.detached(priority: .utility) {
-            DeviceInformationService.quickStatus()
-        }.value
-        await evaluate(status)
+        guard !isPolling else {
+            pollAgain = true
+            return
+        }
+        isPolling = true
+        defer { isPolling = false }
+        repeat {
+            pollAgain = false
+            let status = await Task.detached(priority: .utility) {
+                DeviceInformationService.quickStatus()
+            }.value
+            // 读取期间又发生电源变化时，重新读取，避免发布旧的充电状态。
+            if pollAgain { continue }
+            latestStatus = status
+            await evaluate(status)
+        } while pollAgain
     }
 
     func evaluate(_ status: DeviceQuickStatus) async {
@@ -86,13 +109,13 @@ final class BatteryAlertMonitor: ObservableObject {
     }
 
     private func evaluate(_ reading: Reading) async {
-        let lowLevels = reading.bluetoothDevices.compactMap { $0.batteryLevel }.filter { $0 < 20 }
+        let lowLevels = reading.bluetoothDevices.filter(\.needsCharge).compactMap { $0.batteryLevel }.filter { $0 < 20 }
             + (reading.macOnBattery ? reading.macLevel.map { $0 < 20 ? [$0] : [] } ?? [] : [])
         mostUrgentLevel = lowLevels.min()
         hasBatteryWarning = !lowLevels.isEmpty
 
         var warnings = reading.bluetoothDevices.compactMap { device -> ChargeWarning? in
-            guard let level = device.batteryLevel, level >= 0,
+            guard device.needsCharge, let level = device.batteryLevel, level >= 0,
                   let stage = Self.stage(for: level) else { return nil }
             return ChargeWarning(id: "bluetooth.\(device.id)", name: device.name, level: level, stage: stage)
         }
@@ -124,7 +147,7 @@ final class BatteryAlertMonitor: ObservableObject {
     private func process(_ reading: Reading) async {
         var items: [BatteryItem] = reading.bluetoothDevices.compactMap { device in
             guard let level = device.batteryLevel, (0...100).contains(level) else { return nil }
-            return BatteryItem(id: "bluetooth.\(device.id)", name: device.name, level: level, shouldNotify: true)
+            return BatteryItem(id: "bluetooth.\(device.id)", name: device.name, level: level, shouldNotify: device.needsCharge)
         }
         if let level = reading.macLevel, (0...100).contains(level) {
             items.append(BatteryItem(id: "mac", name: "Mac", level: level, shouldNotify: reading.macOnBattery))
@@ -134,6 +157,13 @@ final class BatteryAlertMonitor: ObservableObject {
         var recoveredIDs: [String] = []
         var changed = false
         for item in items {
+            if !item.shouldNotify {
+                if notifiedStages.removeValue(forKey: item.id) != nil {
+                    recoveredIDs.append(item.id)
+                    changed = true
+                }
+                continue
+            }
             guard let stage = Self.stage(for: item.level) else {
                 if notifiedStages.removeValue(forKey: item.id) != nil {
                     recoveredIDs.append(item.id)
