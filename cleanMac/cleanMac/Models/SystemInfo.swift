@@ -15,7 +15,7 @@ struct SystemInfo {
 }
 
 /// 存储信息模型
-struct StorageInfo {
+struct StorageInfo: Sendable {
     let totalBytes: Int64
     let usedBytes: Int64
     let freeBytes: Int64

@@ -554,21 +554,20 @@ struct CategoryDetailView: View {
                         }
                     }
                 )
-                // 列表底部留白，避免悬浮条盖住最后一行
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear
-                        .frame(height: selectedFileItems.isEmpty ? 12 : 88)
+                // 按胶囊的实际高度预留空间，窄窗口换行后也不会遮住最后一行。
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !selectedFileItems.isEmpty {
+                        selectionSummaryBar
+                            .padding(.top, 8)
+                            .padding(.bottom, 18)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else {
+                        Color.clear.frame(height: 12)
+                    }
                 }
 
                 if sortedFiles.isEmpty {
                     noMatchesView
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if !selectedFileItems.isEmpty {
-                    selectionSummaryBar
-                        .padding(.bottom, 18)
-                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
                 }
             }
         }
@@ -672,69 +671,17 @@ struct CategoryDetailView: View {
     }
     // MARK: - 选择汇总胶囊（悬浮，不遮挡列表）
     private var selectionSummaryBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text("\(selectedFileItems.count)")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.accentGradient)
-                    .monospacedDigit()
-                Text("已选")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
-                Text(FileSizeFormatter.string(fromByteCount: selectedTotalSize))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, 4)
-
-            Divider()
-                .frame(height: 18)
-
-            Button(role: .destructive) {
+        SelectionSummaryCapsule(
+            count: selectedFileItems.count,
+            totalSize: selectedTotalSize,
+            actionTitle: deleteButtonTitle,
+            onDelete: {
                 withAnimation(Theme.springSnappy) {
                     deleteSelectedFiles()
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(deleteButtonTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .foregroundColor(.white)
-                .background(
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.red.opacity(0.95), Color.red.opacity(0.75)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .shadow(color: Color.red.opacity(0.3), radius: 8, y: 3)
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 8)
-            .padding(.vertical, 6)
-            .accessibilityLabel(deleteButtonTitle)
-        }
-        .padding(.vertical, 6)
-        .padding(.leading, 4)
-        .background(
-            Capsule()
-                .fill(.regularMaterial)
-                .overlay(
-                    Capsule()
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
         )
-        .shadow(color: .black.opacity(0.16), radius: 24, y: 12)
-        .frame(height: 52)
+        .padding(.horizontal, 16)
     }
 
     private var deleteButtonTitle: String {

@@ -2,9 +2,9 @@ import SwiftUI
 import AppKit
 
 struct XcodeAnalysisView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var viewModel: XcodeAnalysisViewModel
-    @State private var pendingDeletion: XcodeArtifact?
-    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         GeometryReader { viewport in
@@ -32,14 +32,10 @@ struct XcodeAnalysisView: View {
         }
         .navigationTitle("")
         .background(Theme.reviewCanvas(.indigo))
-        .alert("移到废纸篓", isPresented: $showingDeleteConfirmation, presenting: pendingDeletion) { item in
-            Button("取消", role: .cancel) { pendingDeletion = nil }
-            Button("移到废纸篓", role: .destructive) {
-                pendingDeletion = nil
-                viewModel.moveToTrash(item)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !viewModel.selectedPaths.isEmpty, !viewModel.isScanning {
+                selectionBar
             }
-        } message: { item in
-            Text("确定将“\(item.name)”（\(item.sizeFormatted)）移到废纸篓吗？")
         }
         .alert("删除失败", isPresented: Binding(
             get: { viewModel.deletionError != nil },
@@ -126,16 +122,57 @@ struct XcodeAnalysisView: View {
     // MARK: - 分组列表
     private func kindSections(_ result: XcodeAnalysisResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("分类明细")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Theme.accentGradient)
-                .textCase(.uppercase)
-                .kerning(0.5)
+            HStack {
+                Text("分类明细")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.accentGradient)
+                    .textCase(.uppercase)
+                    .kerning(0.5)
+                Spacer()
+                selectionButton()
+            }
 
             ForEach(XcodeArtifactKind.allCases) { kind in
                 group(kind, result: result)
             }
         }
+    }
+
+    private func selectionButton(in kind: XcodeArtifactKind? = nil) -> some View {
+        let items = viewModel.selectableArtifacts(in: kind)
+        let selectedCount = items.filter { viewModel.selectedPaths.contains($0.path) }.count
+        let allSelected = !items.isEmpty && selectedCount == items.count
+        return Button {
+            viewModel.toggleSelectAll(in: kind)
+        } label: {
+            Capsule()
+                .fill(allSelected ? Color.accentColor : Color.secondary.opacity(selectedCount > 0 ? 0.7 : 0.35))
+                .frame(width: 4, height: kind == nil ? 20 : 32)
+                .frame(width: 20, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue("已选 \(selectedCount) 项，共 \(items.count) 项可选择")
+        .disabled(items.isEmpty || viewModel.isScanning || viewModel.isDeleting)
+        .accessibilityLabel("\(allSelected ? "取消全选" : "全选")\(kind?.rawValue ?? "所有分类")中的可删除项目")
+        .help("\(allSelected ? "取消全选" : "全选")\(kind?.rawValue ?? "所有分类")中的可删除项目")
+    }
+
+    private var selectionBar: some View {
+        SelectionSummaryCapsule(
+            count: viewModel.selectedPaths.count,
+            totalSize: viewModel.selectedSize,
+            actionTitle: "移到废纸篓",
+            isBusy: viewModel.isDeleting,
+            onClear: { viewModel.clearSelection() },
+            onDelete: {
+                viewModel.requestTrash(viewModel.selectedArtifacts)
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - 空闲 / 扫描中
@@ -203,12 +240,26 @@ struct XcodeAnalysisView: View {
         .frame(maxWidth: .infinity, minHeight: 320)
     }
 
+    private var selectionGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [Color(red: 0.45, green: 0.65, blue: 1), Color(red: 0.65, green: 0.50, blue: 1)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        return Theme.accentGradient
+    }
+
     // MARK: - 分组卡片
     private func group(_ kind: XcodeArtifactKind, result: XcodeAnalysisResult) -> some View {
         let items = result.artifacts(for: kind)
         let isExpanded = viewModel.expandedKinds.contains(kind)
-        return CardView(padding: 16) {
-            VStack(alignment: .leading, spacing: 12) {
+        let selectableItems = viewModel.selectableArtifacts(in: kind)
+        let selectedCount = selectableItems.filter { viewModel.selectedPaths.contains($0.path) }.count
+        let selectionProgress = selectableItems.isEmpty ? 0 : Double(selectedCount) / Double(selectableItems.count)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         viewModel.toggleExpanded(kind)
@@ -235,7 +286,7 @@ struct XcodeAnalysisView: View {
 
                         Spacer(minLength: 8)
 
-                        Text("\(items.count) 项")
+                        Text(selectedCount > 0 ? "已选 \(selectedCount)/\(selectableItems.count) 项" : "\(items.count) 项")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundColor(.secondary)
                             .monospacedDigit()
@@ -254,56 +305,107 @@ struct XcodeAnalysisView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(kind.rawValue)，\(items.count) 项，\(isExpanded ? "收起" : "展开")")
+            }
+            .padding(.leading, 16)
 
-                if isExpanded {
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.07))
-                        .frame(height: 1)
+            if isExpanded {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(height: 1)
 
-                    if items.isEmpty {
-                        Text("未发现相关文件")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .padding(.vertical, 6)
-                    } else {
-                        LazyVStack(spacing: 8) {
-                            ForEach(items) { item in
-                                artifactRow(item)
-                            }
+                if items.isEmpty {
+                    Text("未发现相关文件")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 6)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(items) { item in
+                            artifactRow(item)
                         }
                     }
                 }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background {
+            GeometryReader { geometry in
+                ZStack {
+                    LinearGradient(
+                        colors: [Theme.surfaceRaised, Theme.surfaceRaised.opacity(0.92)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    selectionGradient
+                        .opacity(colorScheme == .dark ? 0.20 : 0.13)
+                        .mask(alignment: .leading) {
+                            Rectangle()
+                                .frame(width: geometry.size.width * selectionProgress)
+                        }
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectionProgress)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Theme.cardStroke, lineWidth: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .overlay(alignment: .topLeading) {
+            selectionButton(in: kind)
+                .padding(.top, 12)
+        }
+        .cardShadow()
+        .accessibilityValue("已选择 \(selectedCount) 项，共 \(selectableItems.count) 项可选择")
     }
 
     private func artifactRow(_ item: XcodeArtifact) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: item.kind == .plugins ? "puzzlepiece.extension" : "folder")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.05))
-                )
+        let isSelected = viewModel.selectedPaths.contains(item.path)
+        return HStack(spacing: 10) {
+            Button {
+                viewModel.toggleSelection(item)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: item.kind == .plugins ? "puzzlepiece.extension" : "folder")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.primary.opacity(0.05))
+                        )
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(item.detail ?? item.path)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(item.path)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(item.detail ?? item.path)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(item.path)
+                    }
+                    Spacer(minLength: 8)
+                    Text(item.sizeFormatted)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 8)
-            Text(item.sizeFormatted)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canDelete(item) || viewModel.isScanning || viewModel.isDeleting)
+            .accessibilityLabel("\(isSelected ? "取消选择" : "选择") \(item.name)，\(item.sizeFormatted)")
+            .accessibilityValue(isSelected ? "已选择" : "未选择")
+            .help(viewModel.canDelete(item) ? "点击选择或取消选择" : "此项目不在可删除范围内")
+
             Button {
                 NSWorkspace.shared.selectFile(item.path, inFileViewerRootedAtPath: "")
             } label: {
@@ -319,15 +421,21 @@ struct XcodeAnalysisView: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.025))
+                .fill(isSelected ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.025))
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isSelected)
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) {
-                pendingDeletion = item
-                showingDeleteConfirmation = true
+                viewModel.requestTrash(viewModel.selectedPaths.contains(item.path) ? viewModel.selectedArtifacts : [item])
             } label: {
-                Label("移到废纸篓", systemImage: "trash")
+                Label(viewModel.selectedPaths.contains(item.path) && viewModel.selectedPaths.count > 1
+                      ? "将所选 \(viewModel.selectedPaths.count) 项移到废纸篓" : "移到废纸篓", systemImage: "trash")
             }
             .disabled(!viewModel.canDelete(item) || viewModel.isScanning || viewModel.isDeleting)
         }

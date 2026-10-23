@@ -2,11 +2,39 @@ import SwiftUI
 
 /// 全屏遮罩上的删除确认弹窗，完整展示本次冻结的待处理清单。
 struct TrashConfirmationOverlay: View {
-    let request: MainViewModel.DeleteRequest
+    private let files: [FileItem]
+    private let categoryName: String
+    private let isPermanent: Bool
+    private let additionalNote: String?
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
-    private var isPermanent: Bool { request.category == .trash }
+    init(request: MainViewModel.DeleteRequest, onConfirm: @escaping () -> Void, onCancel: @escaping () -> Void) {
+        files = request.files
+        categoryName = request.category.rawValue
+        isPermanent = request.category == .trash
+        additionalNote = nil
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+    }
+
+    init(xcodeArtifacts: [XcodeArtifact], onConfirm: @escaping () -> Void, onCancel: @escaping () -> Void) {
+        files = xcodeArtifacts.map {
+            FileItem(path: $0.path, name: $0.name, size: $0.size, modificationDate: nil,
+                     isDirectory: (try? URL(fileURLWithPath: $0.path).resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? true)
+        }
+        let kinds = Set(xcodeArtifacts.map(\.kind))
+        categoryName = kinds.count == 1 ? (xcodeArtifacts.first?.kind.rawValue ?? "Xcode 数据") : "Xcode 数据"
+        isPermanent = false
+        additionalNote = kinds.contains(.archives) || kinds.contains(.simulatorDevices)
+            ? "所选项目包含归档或模拟器数据，请确认不再需要其中的应用和用户数据。" : nil
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+    }
+
+    private var totalSizeFormatted: String {
+        FileSizeFormatter.string(fromByteCount: files.reduce(0) { $0 + $1.size })
+    }
     private var accent: Color { isPermanent ? .red : .orange }
 
     var body: some View {
@@ -95,10 +123,10 @@ struct TrashConfirmationOverlay: View {
     }
 
     private var summary: some View {
-        HStack(spacing: 12) {
-            summaryTile("项目数量", value: "\(request.files.count) 项", icon: "square.stack.3d.up")
-            summaryTile("占用空间", value: request.totalSizeFormatted, icon: "externaldrive")
-            summaryTile("所属类别", value: request.category.rawValue, icon: "folder")
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+            summaryTile("项目数量", value: "\(files.count) 项", icon: "square.stack.3d.up")
+            summaryTile("占用空间", value: totalSizeFormatted, icon: "externaldrive")
+            summaryTile("所属类别", value: categoryName, icon: "folder")
         }
     }
 
@@ -132,9 +160,10 @@ struct TrashConfirmationOverlay: View {
             Image(systemName: isPermanent ? "exclamationmark.triangle.fill" : "info.circle.fill")
                 .font(.system(size: 15))
                 .foregroundColor(accent)
-            Text(isPermanent
+            Text((isPermanent
                  ? "这些项目将从废纸篓永久删除，无法再从应用内恢复。"
                  : "项目会移入当前用户的废纸篓。如需调整清单，请取消后重新选择。")
+                 + (additionalNote.map { "\n" + $0 } ?? ""))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +179,7 @@ struct TrashConfirmationOverlay: View {
                 Text("待处理项目")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("\(request.files.count) 项")
+                Text("\(files.count) 项")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
@@ -160,7 +189,7 @@ struct TrashConfirmationOverlay: View {
             Divider()
 
             LazyVStack(spacing: 0) {
-                ForEach(Array(request.files.enumerated()), id: \.element.id) { index, file in
+                ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
                     HStack(spacing: 12) {
                         FileItemIcon(file: file, size: 34)
 
@@ -185,7 +214,7 @@ struct TrashConfirmationOverlay: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 11)
 
-                    if index < request.files.count - 1 {
+                    if index < files.count - 1 {
                         Divider().padding(.leading, 64)
                     }
                 }
@@ -196,22 +225,41 @@ struct TrashConfirmationOverlay: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(isPermanent ? "将永久删除" : "将移到废纸篓")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Text("\(request.files.count) 项 · \(request.totalSizeFormatted)")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                footerSummary
+                Spacer(minLength: 16)
+                footerButtons.frame(width: 326)
             }
+            .frame(minWidth: 540)
+            VStack(alignment: .leading, spacing: 14) {
+                footerSummary
+                footerButtons
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .background(Theme.surfaceRaised)
+    }
 
-            Spacer(minLength: 16)
+    private var footerSummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(isPermanent ? "将永久删除" : "将移到废纸篓")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Text("\(files.count) 项 · \(totalSizeFormatted)")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+        }
+    }
 
+    private var footerButtons: some View {
+        HStack(spacing: 14) {
             Button(action: onCancel) {
                 Text("取消")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
-                    .frame(width: 156, height: 42)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
                     .background(Color.primary.opacity(0.07), in: Capsule())
                     .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 1))
             }
@@ -221,7 +269,8 @@ struct TrashConfirmationOverlay: View {
                 Label(isPermanent ? "永久删除" : "移到废纸篓", systemImage: "trash")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 156, height: 42)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
                     .background(
                         LinearGradient(
                             colors: [accent, accent.opacity(0.78)],
@@ -233,8 +282,5 @@ struct TrashConfirmationOverlay: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 18)
-        .background(Theme.surfaceRaised)
     }
 }

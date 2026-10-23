@@ -96,6 +96,15 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(110)
             }
+            if let items = xcodeAnalysisViewModel.pendingDeletion {
+                TrashConfirmationOverlay(
+                    xcodeArtifacts: items,
+                    onConfirm: { xcodeAnalysisViewModel.confirmTrash() },
+                    onCancel: { xcodeAnalysisViewModel.cancelTrash() }
+                )
+                .transition(.opacity)
+                .zIndex(110)
+            }
             if viewModel.showingSmartCleanDialog {
                 GeometryReader { geometry in
                     ZStack {
@@ -126,6 +135,13 @@ struct ContentView: View {
                 SmartCleanCleaningOverlay()
                     .transition(.opacity)
                     .zIndex(120)
+            } else if xcodeAnalysisViewModel.isDeleting {
+                SmartCleanCleaningOverlay(
+                    title: "正在清理 Xcode 数据",
+                    subtitle: "正在将已确认的项目移到废纸篓，请稍候"
+                )
+                .transition(.opacity)
+                .zIndex(120)
             }
             if viewModel.showingDonationPrompt {
                 DonationOverlay {

@@ -135,7 +135,7 @@ final class SystemInfoService: @unchecked Sendable {
         return run("system_profiler SPHardwareDataType | grep 'Serial' | awk '{print $NF}'")
     }
     
-    nonisolated private func getUptime() -> String {
+    nonisolated func getUptime() -> String {
         let uptimeSeconds = ProcessInfo.processInfo.systemUptime
         let days = Int(uptimeSeconds) / 86400
         let hours = (Int(uptimeSeconds) % 86400) / 3600

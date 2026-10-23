@@ -1,8 +1,10 @@
 import SwiftUI
 import Lottie
 
-/// 智能清理执行期间的全屏状态占位，阻止用户在清理过程中操作其他页面。
+/// 清理执行期间共用的全屏状态占位，阻止用户在清理过程中操作其他页面。
 struct SmartCleanCleaningOverlay: View {
+    var title = "正在智能清理"
+    var subtitle = "正在安全处理已确认的缓存、日志和应用残留"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let animation = LottieAnimation.asset("SmartCleaning")
 
@@ -31,9 +33,9 @@ struct SmartCleanCleaningOverlay: View {
                 .accessibilityHidden(true)
 
                 VStack(spacing: 7) {
-                    Text("正在智能清理")
+                    Text(title)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("正在安全处理已确认的缓存、日志和应用残留")
+                    Text(subtitle)
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -58,6 +60,6 @@ struct SmartCleanCleaningOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("正在智能清理，请稍候")
+        .accessibilityLabel("\(title)，请稍候")
     }
 }

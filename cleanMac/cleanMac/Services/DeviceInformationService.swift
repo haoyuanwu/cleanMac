@@ -19,6 +19,7 @@ struct DeviceInfoSnapshot: Sendable {
     let bluetooth: [DeviceInfoField]
     let connectedBluetoothDevices: [BluetoothConnectedDevice]
     let storage: [DeviceInfoField]
+    let storageInfo: StorageInfo
     let storageUsedFraction: Double?
     let capturedAt: Date
 }
@@ -66,44 +67,40 @@ struct DeviceQuickStatus: Sendable {
 }
 
 enum DeviceInformationService {
-    /// 菜单栏只读取快速状态，避免每次展开都执行硬件报告命令。
-    nonisolated static func quickStatus() -> DeviceQuickStatus {
-        let attributes = try? FileManager.default.attributesOfFileSystem(
-            forPath: FileManager.default.homeDirectoryForCurrentUser.path
-        )
-        let total = (attributes?[.systemSize] as? Int64) ?? 0
-        let free = (attributes?[.systemFreeSize] as? Int64) ?? 0
-        let battery = batteryReading()
-        let wifi = wifiFields()
-        let bluetooth = bluetoothReading()
-
-        return DeviceQuickStatus(
-            deviceName: ProcessInfo.processInfo.hostName,
-            freeBytes: free,
-            totalBytes: total,
-            batteryLevel: battery.level,
-            batteryState: fieldValue("状态", in: battery.fields) ?? "未检测到电池",
-            batteryFields: battery.fields,
-            wifiState: fieldValue("状态", in: wifi) ?? "未检测到",
-            wifiName: fieldValue("网络名称", in: wifi).flatMap { $0 == "未提供" ? nil : $0 },
-            bluetoothState: fieldValue("状态", in: bluetooth.fields) ?? "未检测到",
-            connectedBluetoothDevices: bluetooth.devices,
-            capturedAt: Date()
-        )
-    }
-
-    nonisolated private static func fieldValue(_ label: String, in fields: [DeviceInfoField]) -> String? {
-        fields.first(where: { $0.label == label })?.value
-    }
-
-    nonisolated static func load() -> DeviceInfoSnapshot {
+    nonisolated static func load(previous: DeviceInfoSnapshot? = nil) -> DeviceInfoSnapshot {
         let systemService = SystemInfoService()
-        let system = systemService.getSystemInfo()
+        let identity = previous.map { (device: $0.device, software: $0.software) } ?? identityFields()
         let disk = systemService.getStorageInfo()
         let battery = batteryReading()
         let bluetooth = bluetoothReading()
 
         return DeviceInfoSnapshot(
+            device: identity.device,
+            software: identity.software.map {
+                $0.label == "运行时间" ? DeviceInfoField(label: $0.label, value: systemService.getUptime()) : $0
+            },
+            battery: battery.fields,
+            batteryLevel: battery.level,
+            wifi: wifiFields(),
+            network: networkFields(),
+            bluetooth: bluetooth.fields,
+            connectedBluetoothDevices: bluetooth.devices,
+            storage: [
+                .init(label: "磁盘卷", value: display(disk.volumeName)),
+                .init(label: "总容量", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.totalBytes) : "未提供"),
+                .init(label: "已使用", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.usedBytes) : "未提供"),
+                .init(label: "可用空间", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.freeBytes) : "未提供")
+            ],
+            storageInfo: disk,
+            storageUsedFraction: disk.totalBytes > 0 ? min(1, max(0, Double(disk.usedBytes) / Double(disk.totalBytes))) : nil,
+            capturedAt: Date()
+        )
+    }
+
+    /// 机型、芯片等静态信息只在首次采集时执行系统查询。
+    nonisolated private static func identityFields() -> (device: [DeviceInfoField], software: [DeviceInfoField]) {
+        let system = SystemInfoService().getSystemInfo()
+        return (
             device: [
                 .init(label: "设备名称", value: display(system.hostname)),
                 .init(label: "机型标识", value: display(system.model)),
@@ -119,21 +116,7 @@ enum DeviceInformationService {
                 .init(label: "当前软件", value: display(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)),
                 .init(label: "软件版本", value: display(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)),
                 .init(label: "软件构建号", value: display(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String))
-            ],
-            battery: battery.fields,
-            batteryLevel: battery.level,
-            wifi: wifiFields(),
-            network: networkFields(),
-            bluetooth: bluetooth.fields,
-            connectedBluetoothDevices: bluetooth.devices,
-            storage: [
-                .init(label: "磁盘卷", value: display(disk.volumeName)),
-                .init(label: "总容量", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.totalBytes) : "未提供"),
-                .init(label: "已使用", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.usedBytes) : "未提供"),
-                .init(label: "可用空间", value: disk.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: disk.freeBytes) : "未提供")
-            ],
-            storageUsedFraction: disk.totalBytes > 0 ? min(1, max(0, Double(disk.usedBytes) / Double(disk.totalBytes))) : nil,
-            capturedAt: Date()
+            ]
         )
     }
 
@@ -340,5 +323,26 @@ enum DeviceInformationService {
             }
         }
         return readings
+    }
+}
+
+extension DeviceInfoSnapshot {
+    var quickStatus: DeviceQuickStatus {
+        func value(_ label: String, in fields: [DeviceInfoField]) -> String? {
+            fields.first { $0.label == label }?.value
+        }
+        return DeviceQuickStatus(
+            deviceName: value("设备名称", in: device) ?? "Mac",
+            freeBytes: storageInfo.freeBytes,
+            totalBytes: storageInfo.totalBytes,
+            batteryLevel: batteryLevel,
+            batteryState: value("状态", in: battery) ?? "未检测到电池",
+            batteryFields: battery,
+            wifiState: value("状态", in: wifi) ?? "未检测到",
+            wifiName: value("网络名称", in: wifi).flatMap { $0 == "未提供" ? nil : $0 },
+            bluetoothState: value("状态", in: bluetooth) ?? "未检测到",
+            connectedBluetoothDevices: connectedBluetoothDevices,
+            capturedAt: capturedAt
+        )
     }
 }

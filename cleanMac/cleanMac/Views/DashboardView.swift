@@ -176,7 +176,7 @@ struct DashboardView: View {
                 action: {
                     Task { await viewModel.scanAll() }
                 },
-                onSmartClean: showingDeepResults ? nil : { viewModel.requestSmartClean() },
+                onSmartClean: { viewModel.requestSmartClean() },
                 onSegmentTap: { segment in
                     guard segment.id != "other" else { return }
                     if segment.id == "duplicates" { openDuplicates(); return }

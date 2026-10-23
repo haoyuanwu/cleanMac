@@ -1,15 +1,24 @@
 import SwiftUI
 
+/// 实时性能两列共用的纵向节奏，保证数值与曲线的起止位置一致。
+enum PerformanceMonitorLayout {
+    static let spacing: CGFloat = 12
+    static let headerHeight: CGFloat = 18
+    static let readoutHeight: CGFloat = 68
+    static let chartHeight: CGFloat = 110
+    static let footerHeight: CGFloat = 14
+    static let height = headerHeight + readoutHeight + chartHeight + footerHeight * 2 + spacing * 4
+}
+
 struct NetworkSpeedCard: View {
     var compact = false
     var embedded = false
     var downloadedTotal: String?
     var uploadedTotal: String?
     @ObservedObject private var monitor = NetworkSpeedMonitor.shared
-    @State private var consumer = UUID().uuidString
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: PerformanceMonitorLayout.spacing) {
             HStack {
                 Label("实时网速", systemImage: "network")
                     .font(.system(size: 12, weight: .semibold))
@@ -18,10 +27,12 @@ struct NetworkSpeedCard: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
+            .frame(height: compact ? nil : PerformanceMonitorLayout.headerHeight)
             HStack(spacing: 12) {
                 NetworkSpeedReadout(title: "下载", value: monitor.throughput.downloadText, color: .blue, icon: "arrow.down", compact: compact)
                 NetworkSpeedReadout(title: "上传", value: monitor.throughput.uploadText, color: .green, icon: "arrow.up", compact: compact)
             }
+            .frame(height: compact ? nil : PerformanceMonitorLayout.readoutHeight)
             GeometryReader { geometry in
                 let scale = max(1024, monitor.history.map { max($0.downloadBytesPerSecond, $0.uploadBytesPerSecond) }.max() ?? 1024)
                 ZStack {
@@ -44,7 +55,7 @@ struct NetworkSpeedCard: View {
                     }
                 }
             }
-            .frame(height: compact ? 44 : 110)
+            .frame(height: compact ? 44 : PerformanceMonitorLayout.chartHeight)
             .accessibilityLabel("最近一分钟下载和上传速度趋势")
             HStack {
                 Text("最近 1 分钟")
@@ -54,6 +65,7 @@ struct NetworkSpeedCard: View {
             .font(.system(size: 9))
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .frame(height: compact ? nil : PerformanceMonitorLayout.footerHeight)
             if let downloadedTotal, let uploadedTotal {
                 HStack {
                     Text("累计下载 \(downloadedTotal)")
@@ -64,6 +76,9 @@ struct NetworkSpeedCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                .frame(height: compact ? nil : PerformanceMonitorLayout.footerHeight)
+            } else if !compact {
+                Color.clear.frame(height: PerformanceMonitorLayout.footerHeight)
             }
         }
         .padding(embedded ? 0 : 14)
@@ -71,15 +86,13 @@ struct NetworkSpeedCard: View {
         .frame(height: compact ? 196 : nil, alignment: .top)
         .background(embedded ? Color.clear : Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(embedded ? Color.clear : Theme.cardStroke))
-        .onAppear { monitor.acquire(consumer) }
-        .onDisappear { monitor.release(consumer) }
     }
 
     private func line(_ values: [Double], scale: Double, size: CGSize) -> Path {
         Path { path in
             guard values.count > 1 else { return }
             for (index, value) in values.enumerated() {
-                let x = size.width * CGFloat(60 - values.count + index) / 59
+                let x = size.width * CGFloat(NetworkSpeedMonitor.historyLimit - values.count + index) / CGFloat(NetworkSpeedMonitor.historyLimit - 1)
                 let y = 2 + (size.height - 4) * (1 - CGFloat(min(1, max(0, value / scale))))
                 let point = CGPoint(x: x, y: y)
                 if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
@@ -118,6 +131,7 @@ struct NetworkSpeedReadout: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
+        .frame(height: compact ? nil : PerformanceMonitorLayout.readoutHeight)
         .background(color.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title) \(value)")

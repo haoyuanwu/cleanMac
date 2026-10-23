@@ -10,63 +10,28 @@ final class DeviceInformationViewModel: NSObject, ObservableObject, CLLocationMa
     @Published private(set) var didRequestWiFiNameAccess = false
     @Published private(set) var locationRequestIssue: String?
     private let locationManager = CLLocationManager()
-    private var refreshAfterLoading = false
-    private var batterySubscription: AnyCancellable?
+    private var subscriptions = Set<AnyCancellable>()
 
     override init() {
         locationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
-        batterySubscription = BatteryAlertMonitor.shared.$latestStatus
-            .compactMap { $0 }
-            .sink { [weak self] status in self?.applyLivePowerStatus(status) }
+        let monitor = DeviceStatusMonitor.shared
+        monitor.$snapshot
+            .sink { [weak self] in self?.snapshot = $0 }
+            .store(in: &subscriptions)
+        monitor.$isRefreshing
+            .sink { [weak self] in self?.isLoading = $0 }
+            .store(in: &subscriptions)
     }
 
     func loadIfNeeded() {
-        guard snapshot == nil else { return }
-        refresh()
+        DeviceStatusMonitor.shared.start()
     }
 
     func refresh() {
-        guard !isLoading else {
-            refreshAfterLoading = true
-            return
-        }
-        isLoading = true
-        Task {
-            let result = await Task.detached(priority: .utility) {
-                DeviceInformationService.load()
-            }.value
-            snapshot = result
-            if let status = BatteryAlertMonitor.shared.latestStatus,
-               status.capturedAt >= result.capturedAt {
-                applyLivePowerStatus(status)
-            }
-            isLoading = false
-            if let snapshot { await BatteryAlertMonitor.shared.evaluate(snapshot) }
-            if refreshAfterLoading {
-                refreshAfterLoading = false
-                refresh()
-            }
-        }
-    }
-
-    private func applyLivePowerStatus(_ status: DeviceQuickStatus) {
-        guard let previous = snapshot else { return }
-        snapshot = DeviceInfoSnapshot(
-            device: previous.device,
-            software: previous.software,
-            battery: status.batteryFields,
-            batteryLevel: status.batteryLevel,
-            wifi: previous.wifi,
-            network: previous.network,
-            bluetooth: previous.bluetooth,
-            connectedBluetoothDevices: status.connectedBluetoothDevices,
-            storage: previous.storage,
-            storageUsedFraction: previous.storageUsedFraction,
-            capturedAt: previous.capturedAt
-        )
+        Task { await DeviceStatusMonitor.shared.refresh() }
     }
 
     func requestWiFiNameAccess() {

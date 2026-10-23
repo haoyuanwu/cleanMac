@@ -84,17 +84,9 @@ enum NetworkSpeedService {
 @MainActor
 final class NetworkSpeedMonitor: ObservableObject {
     static let shared = NetworkSpeedMonitor()
-    private var consumers = Set<String>()
+    static let historyLimit = 60
+    private init() {}
 
-    func acquire(_ consumer: String) {
-        consumers.insert(consumer)
-        start()
-    }
-
-    func release(_ consumer: String) {
-        consumers.remove(consumer)
-        if consumers.isEmpty { stop() }
-    }
     @Published private(set) var throughput: NetworkThroughput = .zero
     @Published private(set) var isActive = false
     @Published private(set) var history: [NetworkThroughput] = []
@@ -106,8 +98,6 @@ final class NetworkSpeedMonitor: ObservableObject {
     func start() {
         guard timer == nil else { return }
         isActive = true
-        throughput = .zero
-        history = []
         lastCounters = NetworkSpeedService.readCounters()
         lastDate = Date()
 
@@ -135,9 +125,16 @@ final class NetworkSpeedMonitor: ObservableObject {
         let current = NetworkSpeedService.readCounters()
         if let lastCounters, let lastDate {
             let seconds = now.timeIntervalSince(lastDate)
+            guard seconds < 60 else {
+                history.removeAll()
+                throughput = .zero
+                self.lastCounters = current
+                self.lastDate = now
+                return
+            }
             throughput = NetworkSpeedService.throughput(from: lastCounters, to: current, seconds: seconds)
             history.append(throughput)
-            if history.count > 60 { history.removeFirst(history.count - 60) }
+            if history.count > Self.historyLimit { history.removeFirst(history.count - Self.historyLimit) }
         }
         lastCounters = current
         lastDate = now

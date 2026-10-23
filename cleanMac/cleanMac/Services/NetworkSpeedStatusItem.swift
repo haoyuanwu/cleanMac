@@ -26,7 +26,6 @@ final class NetworkSpeedStatusItem: NSObject {
             NSStatusBar.system.removeStatusItem(item)
             self.item = nil
             speedView = nil
-            NetworkSpeedMonitor.shared.release("menuBar")
             return
         }
         guard item == nil else { return }
@@ -43,7 +42,6 @@ final class NetworkSpeedStatusItem: NSObject {
         }
         speedSubscription = NetworkSpeedMonitor.shared.$throughput
             .sink { [weak self] value in self?.render(value) }
-        NetworkSpeedMonitor.shared.acquire("menuBar")
     }
 
     private func render(_ value: NetworkThroughput) {

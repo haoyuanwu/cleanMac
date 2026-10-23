@@ -129,8 +129,8 @@ struct DeviceInformationView: View {
                     HStack(alignment: .top, spacing: 24) {
                         networkSpeedCard(snapshot)
                             .frame(maxWidth: .infinity)
-                        Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1, height: 220)
-                        DeviceMemoryTrendCard(embedded: true).frame(width: 260)
+                        Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1, height: PerformanceMonitorLayout.height)
+                        DeviceMemoryTrendCard(embedded: true).frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                     .frame(minWidth: 620)
                     VStack(spacing: 24) {

@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import UserNotifications
-import IOKit.ps
 
 /// 在电量首次进入 20%、10%、5% 档位时提醒；恢复后允许下一次下降重新提醒。
 @MainActor
@@ -45,10 +44,7 @@ final class BatteryAlertMonitor: ObservableObject {
 
     private let stagesKey = "com.cleanMac.batteryAlerts.notifiedStages"
     private var notifiedStages: [String: Int]
-    private var timer: Timer?
-    private var powerSourceNotification: CFRunLoopSource?
-    private var isPolling = false
-    private var pollAgain = false
+    private var statusSubscription: AnyCancellable?
     private var isEvaluating = false
     private var pendingReading: Reading?
 
@@ -57,39 +53,13 @@ final class BatteryAlertMonitor: ObservableObject {
     }
 
     func start() {
-        guard timer == nil else { return }
-        if let source = IOPSNotificationCreateRunLoopSource({ _ in
-            Task { @MainActor in await BatteryAlertMonitor.shared.poll() }
-        }, nil)?.takeRetainedValue() {
-            powerSourceNotification = source
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        }
-        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.poll() }
-        }
-        timer.tolerance = 10
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-        Task { await poll() }
-    }
-
-    func poll() async {
-        guard !isPolling else {
-            pollAgain = true
-            return
-        }
-        isPolling = true
-        defer { isPolling = false }
-        repeat {
-            pollAgain = false
-            let status = await Task.detached(priority: .utility) {
-                DeviceInformationService.quickStatus()
-            }.value
-            // 读取期间又发生电源变化时，重新读取，避免发布旧的充电状态。
-            if pollAgain { continue }
-            latestStatus = status
-            await evaluate(status)
-        } while pollAgain
+        guard statusSubscription == nil else { return }
+        statusSubscription = DeviceStatusMonitor.shared.$snapshot
+            .compactMap { $0?.quickStatus }
+            .sink { [weak self] status in
+                self?.latestStatus = status
+                Task { await self?.evaluate(status) }
+            }
     }
 
     func evaluate(_ status: DeviceQuickStatus) async {

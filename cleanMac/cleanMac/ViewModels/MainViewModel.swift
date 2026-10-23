@@ -104,7 +104,7 @@ class MainViewModel: ObservableObject {
     // MARK: - Private
     private let scanService = ScanService()
     private let cleanService = CleanService()
-    private let systemInfoService = SystemInfoService()
+    private var deviceStatusSubscription: AnyCancellable?
     private var applicationsWaitingForPermission: [FileItem] = []
     private var isWaitingForAppManagementSettings = false
     private var scanAllTask: Task<Void, Never>?
@@ -174,20 +174,24 @@ class MainViewModel: ObservableObject {
     
     // MARK: - Init
     
-    /// 启动时只读取卷容量与空闲空间，不遍历用户文件或受保护目录。
+    init() {
+        deviceStatusSubscription = DeviceStatusMonitor.shared.$snapshot
+            .compactMap { $0?.storageInfo }
+            .sink { [weak self] in self?.storageInfo = $0 }
+    }
+
+    /// 启动和清理后请求同一份后台快照，主页面与状态栏容量同步。
     func loadStartupSnapshot() async {
         isLoadingSystemInfo = true
-        let service = systemInfoService
-        let storage = await Task.detached(operation: { service.getStorageInfo() }).value
-        self.storageInfo = storage
-
-        if storage.totalBytes > 0 { StorageTimeline.record(storage: storage) }
-
+        await DeviceStatusMonitor.shared.refresh()
+        if let storage = storageInfo, storage.totalBytes > 0 {
+            StorageTimeline.record(storage: storage)
+        }
         isLoadingSystemInfo = false
     }
-    
+
     // MARK: - Actions
-    
+
     /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
     func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = true) async {
         guard !isScanning else { return }

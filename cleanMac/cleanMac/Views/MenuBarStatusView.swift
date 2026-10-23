@@ -41,8 +41,9 @@ struct MenuBarStatusView: View {
     @State private var popupWindowHolder = MenuBarPopupWindowHolder()
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var mainViewModel = MainViewModel.shared
-    @State private var status: DeviceQuickStatus?
-    @State private var isRefreshing = false
+    @ObservedObject private var deviceMonitor = DeviceStatusMonitor.shared
+    private var status: DeviceQuickStatus? { deviceMonitor.snapshot?.quickStatus }
+    private var isRefreshing: Bool { deviceMonitor.isRefreshing }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,6 +55,7 @@ struct MenuBarStatusView: View {
                     if let status {
                         storageCard(status)
                     }
+                    DeviceMemoryTrendCard(compact: true)
                     NetworkSpeedCard(compact: true)
 
                     HStack(alignment: .top, spacing: 10) {
@@ -85,11 +87,7 @@ struct MenuBarStatusView: View {
         .frame(width: 330, height: 570)
         .background(Theme.reviewCanvas(.blue))
         .background(MenuBarPopupWindowReader(holder: popupWindowHolder))
-        .onReceive(BatteryAlertMonitor.shared.$latestStatus.compactMap { $0 }) { status in
-            self.status = status
-        }
         .task {
-            await refresh()
             await trashMonitor.refresh()
         }
 
@@ -412,11 +410,7 @@ struct MenuBarStatusView: View {
     }
 
     private func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        await BatteryAlertMonitor.shared.poll()
-        status = BatteryAlertMonitor.shared.latestStatus
-        isRefreshing = false
+        await deviceMonitor.refresh()
     }
 
     private func openMainWindow() {
