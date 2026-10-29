@@ -3,6 +3,7 @@ import Foundation
 struct PrivilegedTrashOutcome: Sendable {
     let succeeded: Bool
     let message: String?
+    var trashPath: String? = nil
 }
 
 /// 普通回收遇到权限不足时，将扫描器支持的缓存和日志项目批量移入废纸篓。
@@ -101,7 +102,8 @@ enum PrivilegedTrashService {
                 && !fileManager.fileExists(atPath: move.source)
             outcomes[move.source] = .init(
                 succeeded: succeeded,
-                message: succeeded ? nil : (processError ?? "管理员授权后仍未能移动项目，请检查系统保护或文件权限。")
+                message: succeeded ? nil : (processError ?? "管理员授权后仍未能移动项目，请检查系统保护或文件权限。"),
+                trashPath: succeeded ? move.destination : nil
             )
         }
         return outcomes

@@ -2,7 +2,7 @@ import Foundation
 
 /// 重复文件检测：按大小预分组，再哈希比对
 enum DuplicateFileScanner {
-    struct DuplicateGroup: Identifiable, Sendable {
+    nonisolated struct DuplicateGroup: Identifiable, Sendable {
         let id: String
         let size: Int64
         let hash: String
@@ -122,7 +122,7 @@ enum DuplicateFileScanner {
         return String(format: "%llx_%d", hash, data.count)
     }
 
-    /// 删除重复（保留 keep，删除其余）
+    /// 保留 keep，其余副本移到废纸篓并记录实际目标。
     nonisolated static func removeDuplicates(keep: FileItem, remove: [FileItem]) -> (removed: Int, failed: Int, details: [String]) {
         var removed = 0
         var failed = 0
@@ -135,7 +135,7 @@ enum DuplicateFileScanner {
                 continue
             }
             do {
-                try FileManager.default.removeItem(atPath: file.path)
+                try CleaningHistoryStore.shared.moveToTrash(path: file.path, size: file.size, category: "重复文件")
                 removed += 1
                 AppLog.info("dedupe removed", metadata: ["path": file.path])
             } catch {

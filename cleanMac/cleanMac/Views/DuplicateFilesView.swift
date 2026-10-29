@@ -107,11 +107,11 @@ struct DuplicateFilesView: View {
             }
         }
         .navigationTitle("")
-        .background(Theme.canvas.ignoresSafeArea())
+
         .onAppear {
             withAnimation(Theme.easeSlow) { appearProgress = 1 }
         }
-        .alert("部分删除失败", isPresented: $showingDeleteError) {
+        .alert("部分回收失败", isPresented: $showingDeleteError) {
             Button("知道了", role: .cancel) { }
         } message: {
             Text(deleteErrorMessage)
@@ -139,7 +139,7 @@ struct DuplicateFilesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("重复文件")
                     .font(.system(size: 17, weight: .bold, design: .rounded))
-                Text("点箭头展开副本 · 点圆点选保留")
+                Text("点圆点选保留 · 其余副本移到废纸篓，可在设置中恢复")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -164,7 +164,7 @@ struct DuplicateFilesView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
-        .background(Theme.canvas)
+
     }
 
     private var metricsBar: some View {
@@ -177,7 +177,7 @@ struct DuplicateFilesView: View {
                 compact: true
             )
             MetricTile(
-                title: "可释放",
+                title: "冗余逻辑大小",
                 value: FileSizeFormatter.string(fromByteCount: totalWasted),
                 subtitle: "保留一份后的冗余",
                 gradient: Theme.warmGradient,
@@ -186,7 +186,7 @@ struct DuplicateFilesView: View {
         }
         .padding(.horizontal, 22)
         .padding(.bottom, 12)
-        .background(Theme.canvas)
+
     }
 
     // MARK: - 折叠分组
@@ -250,7 +250,7 @@ struct DuplicateFilesView: View {
                         Button {
                             Task { await deleteExtra(in: group) }
                         } label: {
-                            Text("删除冗余 \(group.files.count - 1) 份 · \(group.wastedSizeFormatted)")
+                            Text("回收冗余 \(group.files.count - 1) 份 · \(group.wastedSizeFormatted)")
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
@@ -265,14 +265,7 @@ struct DuplicateFilesView: View {
                 .frame(maxHeight: 260)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Theme.surfaceRaised)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-                )
-        )
+        .gradientGlass(cornerRadius: 14)
         .cardShadow()
     }
 
@@ -434,7 +427,7 @@ struct DuplicateFilesView: View {
         ])
         await scan()
         if outcome.failed > 0 {
-            deleteErrorMessage = "\(outcome.failed) 个副本未能删除：\n" + outcome.details.prefix(3).joined(separator: "\n")
+            deleteErrorMessage = "\(outcome.failed) 个副本未能移到废纸篓：\n" + outcome.details.prefix(3).joined(separator: "\n")
             showingDeleteError = true
         }
     }

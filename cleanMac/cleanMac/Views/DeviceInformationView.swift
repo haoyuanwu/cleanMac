@@ -14,6 +14,9 @@ struct DeviceInformationView: View {
 
                 if let snapshot = viewModel.snapshot {
                     overviewCard(snapshot)
+                }
+                ApplicationResourceCard()
+                if let snapshot = viewModel.snapshot {
                     categoryColumns(snapshot)
 
                     Text("最近更新：\(snapshot.capturedAt.formatted(date: .omitted, time: .standard))")
@@ -31,7 +34,7 @@ struct DeviceInformationView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.reviewCanvas(.blue))
+
         .onAppear {
             viewModel.updateLocationStatus()
             viewModel.loadIfNeeded()
@@ -183,7 +186,7 @@ struct DeviceInformationView: View {
         content()
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surfaceRaised.opacity(0.78), in: RoundedRectangle(cornerRadius: 18))
+            .gradientGlass(cornerRadius: 18)
     }
 
     private func dashboardPair<Left: View, Right: View>(
@@ -408,7 +411,7 @@ struct DeviceInformationView: View {
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
-                    .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
+                    .gradientGlass(cornerRadius: 10)
             } else {
                 ForEach(devices) { device in
                     let isLow = device.needsCharge
@@ -435,7 +438,7 @@ struct DeviceInformationView: View {
                         }
                     }
                     .padding(10)
-                    .background(isLow ? tint.opacity(0.08) : Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 10))
+                    .gradientGlass(cornerRadius: 10)
                 }
             }
         }

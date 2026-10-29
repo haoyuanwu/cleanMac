@@ -1,11 +1,19 @@
 import SwiftUI
+import Combine
 import AppKit
 
 /// 与扫描、清理相关的系统权限入口。
 struct SettingsView: View {
     @AppStorage("com.cleanMac.showMenuBarNetworkSpeed") private var showMenuBarNetworkSpeed = false
+    @AppStorage("com.cleanMac.resourceAlerts") private var resourceAlerts = true
+    @AppStorage("com.cleanMac.resourceCPUThreshold") private var resourceCPUThreshold = 150.0
+    @AppStorage("com.cleanMac.resourceMemoryPercent") private var resourceMemoryPercent = 20.0
     @State private var isHistoryExpanded = false
     @State private var showingDonation = false
+    @State private var showingCacheScanIgnores = false
+    @State private var showingCleaningHistory = false
+    @State private var showingCacheRules = false
+    @State private var cacheScanIgnoreCount = 0
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var scheduledScan = ScheduledScanService.shared
@@ -33,6 +41,66 @@ struct SettingsView: View {
                     LazyVGrid(columns: settingsColumns, alignment: .leading, spacing: 14) {
                         trashWarningCard
                         growthWarningCard
+                    }
+                    settingsCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle("高占用应用提醒", isOn: $resourceAlerts).font(.system(size: 14, weight: .semibold))
+                            Text("每 5 秒采样，检测占用突增或持续高占用时提醒，不增加状态栏图标。同一轮异常只提醒一次，恢复后再次异常仍有 10 分钟冷却。")
+                                .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                            HStack {
+                                Picker("CPU", selection: $resourceCPUThreshold) {
+                                    ForEach([100.0, 150, 200, 400], id: \.self) { Text("\(Int($0))%").tag($0) }
+                                }
+                                Picker("内存占比", selection: $resourceMemoryPercent) {
+                                    ForEach([10.0, 20, 30, 40], id: \.self) { Text("\(Int($0))%").tag($0) }
+                                }
+                            }.disabled(!resourceAlerts)
+                            Text("CPU 100% 约为一个核心；内存阈值至少为 2 GB。系统应用、自身与白名单应用受到保护。已有辅助功能权限时，还会检测持续响应超时（疑似无响应），不会主动请求权限。")
+                                .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("扫描加速", subtitle: "管理应用缓存扫描自动跳过的无缓存目录。")
+                    settingsCard {
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("自动忽略的扫描路径").font(.system(size: 14, weight: .semibold))
+                                Text("已记录 \(cacheScanIgnoreCount) 个路径，最多跳过 24 小时后自动复查。")
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("查看与管理") { showingCacheScanIgnores = true }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("缓存识别", subtitle: "查看专用缓存的识别依据，按需回退规则版本。")
+                    settingsCard {
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("本地缓存规则").font(.system(size: 14, weight: .semibold))
+                                Text("按软件和精确路径识别，专用目录需手动确认。")
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            Button("查看规则与版本") { showingCacheRules = true }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("清理记录", subtitle: "查看操作结果，恢复移到废纸篓中的项目。")
+                    settingsCard {
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("操作历史与恢复").font(.system(size: 14, weight: .semibold))
+                                Text("记录原路径和实际废纸篓位置，恢复时检查同名冲突。")
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            Button("查看清理记录") { showingCleaningHistory = true }
+                        }
                     }
                 }
 
@@ -84,7 +152,14 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.reviewCanvas(.blue))
+
+        .task { cacheScanIgnoreCount = CacheScanIgnoreStore.shared.allRecords.count }
+        .onReceive(NotificationCenter.default.publisher(for: CacheScanIgnoreStore.didChange).receive(on: RunLoop.main)) { _ in
+            cacheScanIgnoreCount = CacheScanIgnoreStore.shared.allRecords.count
+        }
+        .sheet(isPresented: $showingCacheRules) { CacheRulesView() }
+        .sheet(isPresented: $showingCleaningHistory) { CleaningHistoryView() }
+        .sheet(isPresented: $showingCacheScanIgnores) { CacheScanIgnoresView() }
         .sheet(isPresented: $showingDonation) {
             DonationView(onClose: { showingDonation = false })
                 .frame(width: 600)
@@ -359,7 +434,7 @@ struct SettingsView: View {
         content()
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .gradientGlass(cornerRadius: 18)
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.cardStroke))
             .cardShadow()
     }

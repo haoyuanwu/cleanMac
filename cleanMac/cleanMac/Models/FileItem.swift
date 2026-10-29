@@ -10,16 +10,22 @@ struct FileItem: Identifiable, Hashable, @unchecked Sendable {
     let modificationDate: Date?
     let isDirectory: Bool
     nonisolated(unsafe) let appIcon: NSImage?
+    let storage: FileStorageMeasurement?
     /// 风险分级（安全白名单）
     var riskLevel: FileRiskLevel = .safe
+    /// 缓存所属软件；保留实际文件路径用于清理。
+    var cacheApplication: CacheApplication?
+    var cacheRuleMatch: CacheRuleMatch?
 
-    nonisolated init(path: String, name: String, size: Int64, modificationDate: Date?, isDirectory: Bool, appIcon: NSImage? = nil) {
+    nonisolated init(path: String, name: String, size: Int64, modificationDate: Date?, isDirectory: Bool, appIcon: NSImage? = nil, storage: FileStorageMeasurement? = nil) {
         self.path = path
         self.name = name
         self.size = size
         self.modificationDate = modificationDate
         self.isDirectory = isDirectory
         self.appIcon = appIcon
+        self.storage = storage ?? ScanContext.diagnostics?.measurement(for: path)
+            ?? (isDirectory ? nil : FileStorageMeasurement.file(URL(fileURLWithPath: path)))
     }
 
     var sizeFormatted: String {

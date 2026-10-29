@@ -20,6 +20,8 @@ jobs:
           grep -Eq '^1[.] ' "$notes"
       - name: Select Xcode 27.1
         run: sudo xcode-select -s /Applications/Xcode_27.1.app/Contents/Developer
+      - name: Run core and filesystem regression tests
+        run: ./cleanMac/Scripts/test_p0.sh
       - name: Build and validate Apple Silicon and Intel DMGs
         run: ./cleanMac/Scripts/make_dmg.sh
       - name: Verify DMGs

@@ -8,14 +8,17 @@ struct TrashScanOutcome: Sendable {
 
 /// 文件扫描服务
 final class ScanService: @unchecked Sendable {
-    nonisolated(unsafe) private let fileManager = FileManager.default
+    nonisolated private let fileManager = ScanFileAccess()
     nonisolated(unsafe) private let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
     
     // MARK: - 系统缓存扫描
     func scanSystemCache() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
+            let applicationRoots = ApplicationCacheScanner.dataRoots(
+                applications: ApplicationCacheScanner.installedApplications()
+            ).filter(\.isCacheRoot).map { $0.url.path }
             let paths = [
                 "\(self.homeDir)/Library/Caches",
                 "/Library/Caches",
@@ -23,7 +26,7 @@ final class ScanService: @unchecked Sendable {
             ]
             
             for path in paths {
-                let entries = self.scanCacheEntries(in: path, minSize: 1024 * 100)
+                let entries = self.scanCacheEntries(in: path, minSize: 1024 * 100, excluding: applicationRoots)
                 if path == "\(self.homeDir)/Library/Caches" {
                     // 浏览器缓存在独立类别统计，避免概览重复计算同一目录。
                     let browserRoots: Set<String> = [
@@ -37,12 +40,12 @@ final class ScanService: @unchecked Sendable {
                 }
             }
             return items.sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     // MARK: - 日志文件扫描
     func scanLogFiles() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
 
@@ -75,20 +78,19 @@ final class ScanService: @unchecked Sendable {
             var seenPaths = Set<String>()
             return items.filter { seenPaths.insert($0.path).inserted }
                 .sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     // MARK: - 浏览器缓存扫描
     func scanBrowserCache() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
             
             let safariPaths = [
                 "\(self.homeDir)/Library/Caches/com.apple.Safari",
                 "\(self.homeDir)/Library/Safari/LocalStorage",
-                "\(self.homeDir)/Library/Caches/com.apple.WebKit.WebContent",
-                "\(self.homeDir)/Library/Containers/com.apple.Safari/Data/Library/Caches"
+                "\(self.homeDir)/Library/Caches/com.apple.WebKit.WebContent"
             ]
             
             let chromePaths = [
@@ -109,17 +111,27 @@ final class ScanService: @unchecked Sendable {
                 "\(self.homeDir)/Library/Application Support/Microsoft Edge"
             ]
             
-            let allPaths = safariPaths + chromePaths + firefoxPaths + edgePaths
-            for path in allPaths {
-                items.append(contentsOf: self.scanBrowserCacheDirectories(in: path))
+            let browsers: [(BrowserCacheApplication, [String])] = [
+                (.safari, safariPaths), (.chrome, chromePaths),
+                (.firefox, firefoxPaths), (.edge, edgePaths)
+            ]
+            var seenPaths = Set<String>()
+            for (application, paths) in browsers {
+                for path in paths {
+                    let caches = self.scanBrowserCacheDirectories(in: path)
+                    for var item in caches where seenPaths.insert(item.path).inserted {
+                        item.cacheApplication = application.cacheApplication
+                        items.append(item)
+                    }
+                }
             }
             return items.sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     // MARK: - 废纸篓扫描
     func scanTrash() async -> TrashScanOutcome {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return TrashScanOutcome(items: [], error: nil) }
             var items: [FileItem] = []
             var readErrors: [String] = []
@@ -145,12 +157,12 @@ final class ScanService: @unchecked Sendable {
             let error = readErrors.isEmpty ? nil :
                 "无法读取部分废纸篓位置：\(readErrors[0])。请在「设置 → 权限」中前往完全磁盘访问授权，重启应用后重新扫描。"
             return TrashScanOutcome(items: items.sorted { $0.size > $1.size }, error: error)
-        }.value
+        }
     }
     
     // MARK: - 应用残留扫描
     func scanAppLeftover() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
             
@@ -167,21 +179,21 @@ final class ScanService: @unchecked Sendable {
             items.append(contentsOf: self.scanLeftovers(in: savedStatePath, installedApps: installedApps))
             
             return items.sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     // MARK: - 下载文件夹扫描
     func scanDownloads() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             let downloadsPath = "\(self.homeDir)/Downloads"
             return self.scanDirectory(downloadsPath, minSize: 1024 * 1024)
-        }.value
+        }
     }
     
     // MARK: - 大文件扫描
     func scanLargeFiles(minSizeMB: Int = 100) async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             let minSize = Int64(minSizeMB) * 1024 * 1024
             var items: [FileItem] = []
@@ -200,12 +212,12 @@ final class ScanService: @unchecked Sendable {
             }
             
             return Array(items.sorted { $0.size > $1.size }.prefix(100))
-        }.value
+        }
     }
     
     // MARK: - 应用程序扫描
     func scanApplications() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
             
@@ -244,7 +256,7 @@ final class ScanService: @unchecked Sendable {
             }
             
             return items.sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     /// 获取应用图标
@@ -256,7 +268,7 @@ final class ScanService: @unchecked Sendable {
     
     // MARK: - 安装包扫描
     func scanInstallers() async -> [FileItem] {
-        await Task.detached { [weak self] in
+        await ScanTask.run { [weak self] in
             guard let self else { return [] }
             var items: [FileItem] = []
 
@@ -291,34 +303,32 @@ final class ScanService: @unchecked Sendable {
             return items
                 .filter { seen.insert($0.path).inserted }
                 .sorted { $0.size > $1.size }
-        }.value
+        }
     }
     
     // MARK: - 私有方法
 
     /// 缓存根目录按一级项目展示；文件夹计入其内容，避免与内部文件重复统计。
-    nonisolated private func scanCacheEntries(in path: String, minSize: Int64) -> [FileItem] {
+    nonisolated private func scanCacheEntries(in path: String, minSize: Int64, excluding excludedPaths: [String] = []) -> [FileItem] {
         guard let names = try? fileManager.contentsOfDirectory(atPath: path) else { return [] }
-        return names.compactMap { name in
+        var items: [FileItem] = []
+        for name in names {
             let fullPath = (path as NSString).appendingPathComponent(name)
-            guard let attributes = try? fileManager.attributesOfItem(atPath: fullPath),
+            guard !excludedPaths.contains(where: { fullPath == $0 || fullPath.hasPrefix($0 + "/") }),
+                  let attributes = try? fileManager.attributesOfItem(atPath: fullPath),
                   let type = attributes[.type] as? FileAttributeType,
-                  type == .typeDirectory || type == .typeRegular else { return nil }
-
+                  type == .typeDirectory || type == .typeRegular else { continue }
             let isDirectory = type == .typeDirectory
-            let size = isDirectory
-                ? FileHelper.directorySize(fullPath)
-                : (attributes[.size] as? Int64) ?? 0
-            guard size >= minSize else { return nil }
-
-            return FileItem(
-                path: fullPath,
-                name: name,
-                size: size,
-                modificationDate: attributes[.modificationDate] as? Date,
-                isDirectory: isDirectory
-            )
+            if isDirectory && excludedPaths.contains(where: { $0.hasPrefix(fullPath + "/") }) {
+                items.append(contentsOf: scanCacheEntries(in: fullPath, minSize: minSize, excluding: excludedPaths))
+                continue
+            }
+            let size = isDirectory ? FileHelper.directorySize(fullPath) : (attributes[.size] as? Int64 ?? 0)
+            guard size >= minSize else { continue }
+            items.append(FileItem(path: fullPath, name: name, size: size,
+                                  modificationDate: attributes[.modificationDate] as? Date, isDirectory: isDirectory))
         }
+        return items
     }
 
     /// 日志根目录下的一级文件夹。
@@ -339,7 +349,8 @@ final class ScanService: @unchecked Sendable {
 
         var items: [FileItem] = []
         for case let url as URL in enumerator {
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if Task.isCancelled { break }
+            let values = try? ScanContext.values(url, keys: [.isDirectoryKey, .isSymbolicLinkKey])
             if values?.isSymbolicLink == true {
                 enumerator.skipDescendants()
                 continue
@@ -399,7 +410,8 @@ final class ScanService: @unchecked Sendable {
 
         var items: [FileItem] = []
         for case let url as URL in enumerator {
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if Task.isCancelled { break }
+            let values = try? ScanContext.values(url, keys: [.isDirectoryKey, .isSymbolicLinkKey])
             if values?.isSymbolicLink == true {
                 enumerator.skipDescendants()
                 continue
@@ -420,8 +432,9 @@ final class ScanService: @unchecked Sendable {
         var items: [FileItem] = []
         guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
         
-        while let file = enumerator.nextObject() as? String {
-            let fullPath = (path as NSString).appendingPathComponent(file)
+        while let file = enumerator.nextObject() as? URL {
+            if Task.isCancelled { break }
+            let fullPath = file.path
             
             guard let attrs = try? fileManager.attributesOfItem(atPath: fullPath),
                   let fileType = attrs[.type] as? FileAttributeType else { continue }
@@ -515,6 +528,7 @@ final class ScanService: @unchecked Sendable {
             ) else { continue }
 
             for case let url as URL in enumerator where url.pathExtension.lowercased() == "app" {
+                if Task.isCancelled { break }
                 enumerator.skipDescendants()
                 guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier else { continue }
                 installed.bundleIDs.insert(id.lowercased())

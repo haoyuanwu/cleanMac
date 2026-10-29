@@ -84,7 +84,7 @@ struct NetworkSpeedCard: View {
         .padding(embedded ? 0 : 14)
         .frame(maxWidth: .infinity)
         .frame(height: compact ? 196 : nil, alignment: .top)
-        .background(embedded ? Color.clear : Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14))
+        .gradientGlass(cornerRadius: 14, enabled: !embedded)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(embedded ? Color.clear : Theme.cardStroke))
     }
 

@@ -143,7 +143,7 @@ final class XcodeAnalysisViewModel: ObservableObject {
                 let path = item.path
                 let failure = await Task.detached(priority: .utility) { () -> String? in
                     do {
-                        try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+                        try CleaningHistoryStore.shared.moveToTrash(path: path, size: item.size, category: "Xcode 文件")
                         return nil
                     } catch {
                         return error.localizedDescription

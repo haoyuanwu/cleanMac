@@ -49,7 +49,7 @@ struct WhitelistView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.reviewCanvas(.green))
+
         .task {
             guard !appeared else { return }
             appeared = true
@@ -167,14 +167,7 @@ struct WhitelistView: View {
             .accessibilityLabel("移出白名单 \(displayName(path))")
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Theme.surfaceRaised)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-                )
-        )
+        .gradientGlass(cornerRadius: 14)
         .cardShadow()
     }
 

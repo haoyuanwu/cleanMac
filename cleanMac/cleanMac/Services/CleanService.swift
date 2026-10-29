@@ -22,26 +22,37 @@ class CleanService {
     }
 
     func cleanBatch(_ groups: [(ScanCategory, [FileItem])]) async -> CleanOutcome {
-        var seen = Set<String>()
-        let items = groups.flatMap { $0.1 }.filter { seen.insert($0.path).inserted }
+        let owned = ScanPathOwnership.unique(groups)
+        let items = owned.map { $0.1 }
+        let categories = Dictionary(uniqueKeysWithValues: owned.map { ($0.1.path, $0.0) })
         return await Task.detached(priority: .userInitiated) {
-            CleanService.performClean(items)
+            CleanService.performClean(items, categories: categories)
         }.value
     }
 
-    private nonisolated static func performClean(_ items: [FileItem]) -> CleanOutcome {
+    private nonisolated static func performClean(_ items: [FileItem], categories: [String: ScanCategory]) -> CleanOutcome {
         let fileManager = FileManager.default
         let validated = DeleteDryRun.validate(items: items, context: "clean-batch")
         var removedPaths = Set<String>()
         var failures = Dictionary(uniqueKeysWithValues: validated.blocked.map { ($0.0.path, $0.1) })
         var privilegedPaths: [String] = []
+        var alreadyMissing = Set<String>()
 
         for item in validated.allowed {
             do {
-                try fileManager.removeItem(atPath: item.path)
+                if categories[item.path] == .trash {
+                    guard isDirectTrashEntry(item.path) else { throw CocoaError(.fileWriteNoPermission) }
+                    try fileManager.removeItem(atPath: item.path)
+                    CleaningHistoryStore.shared.record(path: item.path, size: item.size, category: ScanCategory.trash.rawValue, state: .permanentlyDeleted)
+                } else {
+                    try CleaningHistoryStore.shared.moveToTrash(path: item.path, size: item.size,
+                        category: categories[item.path]?.rawValue ?? "清理")
+                }
                 removedPaths.insert(item.path)
             } catch {
-                if !fileManager.fileExists(atPath: item.path) {
+                if isRemovalMissingError(error) {
+                    alreadyMissing.insert(item.path)
+                    CleaningHistoryStore.shared.record(path: item.path, size: item.size, category: categories[item.path]?.rawValue ?? "清理", state: .alreadyMissing)
                     removedPaths.insert(item.path)
                 } else if isRemovalPermissionError(error), PrivilegedRemovalService.isSupported(item.path) {
                     privilegedPaths.append(item.path)
@@ -51,19 +62,36 @@ class CleanService {
             }
         }
         if !privilegedPaths.isEmpty {
-            let elevated = PrivilegedRemovalService.remove(paths: privilegedPaths)
-            removedPaths.formUnion(elevated.removedPaths)
-            failures.merge(elevated.failures) { _, new in new }
+            let permanent = privilegedPaths.filter { categories[$0] == .trash }
+            let recoverable = privilegedPaths.filter { categories[$0] != .trash }
+            let elevated = PrivilegedTrashService.moveToTrash(paths: recoverable)
+            for path in recoverable {
+                let outcome = elevated[path]
+                if outcome?.succeeded == true { removedPaths.insert(path) }
+                else { failures[path] = outcome?.message ?? "无法移到废纸篓。" }
+                CleaningHistoryStore.shared.record(path: path, size: items.first { $0.path == path }?.size ?? 0,
+                    category: categories[path]?.rawValue ?? "清理", state: outcome?.succeeded == true ? .movedToTrash : .failed,
+                    trashPath: outcome?.trashPath, message: outcome?.message)
+            }
+            let deleted = PrivilegedRemovalService.remove(paths: permanent)
+            removedPaths.formUnion(deleted.removedPaths)
+            failures.merge(deleted.failures) { _, new in new }
+            for path in permanent {
+                CleaningHistoryStore.shared.record(path: path, size: items.first { $0.path == path }?.size ?? 0,
+                    category: ScanCategory.trash.rawValue, state: deleted.removedPaths.contains(path) ? .permanentlyDeleted : .failed,
+                    message: deleted.failures[path])
+            }
         }
         for item in items {
             if let reason = failures[item.path] {
+                CleaningHistoryStore.shared.record(path: item.path, size: item.size, category: categories[item.path]?.rawValue ?? "清理", state: .failed, message: reason)
                 AppLog.error("clean failed", metadata: ["path": item.path, "error": reason])
             } else if removedPaths.contains(item.path) {
                 AppLog.info("cleaned", metadata: ["path": item.path, "size": "\(item.size)"])
             }
         }
         return CleanOutcome(
-            cleanedBytes: items.filter { removedPaths.contains($0.path) }.reduce(0) { $0 + $1.size },
+            cleanedBytes: items.filter { removedPaths.contains($0.path) && !alreadyMissing.contains($0.path) }.reduce(0) { $0 + $1.size },
             removedPaths: removedPaths,
             failures: failures
         )
@@ -75,7 +103,7 @@ class CleanService {
         guard decision.allowed else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: decision.reason])
         }
-        try fileManager.removeItem(atPath: item.path)
+        try CleaningHistoryStore.shared.moveToTrash(path: item.path, size: item.size, category: "单项清理")
     }
     
     /// 清空废纸篓
@@ -84,6 +112,7 @@ class CleanService {
             var cleanedBytes: Int64 = 0
             var failures: [String: String] = [:]
             var privilegedPaths: [String] = []
+            var alreadyMissing = Set<String>()
             for item in items {
                 guard isDirectTrashEntry(item.path), !UserWhitelist.isWhitelisted(item.path) else {
                     failures[item.path] = "路径不在可清理的废纸篓范围，或已加入白名单。"
@@ -94,8 +123,8 @@ class CleanService {
                     try FileManager.default.removeItem(at: URL(fileURLWithPath: item.path))
                     cleanedBytes += item.size
                 } catch {
-                    if !FileManager.default.fileExists(atPath: item.path) {
-                        cleanedBytes += item.size
+                    if isRemovalMissingError(error) {
+                        alreadyMissing.insert(item.path)
                     } else if isRemovalPermissionError(error) {
                         privilegedPaths.append(item.path)
                     } else {
@@ -109,6 +138,11 @@ class CleanService {
                     .reduce(0) { $0 + $1.size }
                 failures.merge(elevated.failures) { _, new in new }
             }
+            for item in items {
+                CleaningHistoryStore.shared.record(path: item.path, size: item.size, category: ScanCategory.trash.rawValue,
+                    state: failures[item.path] != nil ? .failed : alreadyMissing.contains(item.path) ? .alreadyMissing : .permanentlyDeleted,
+                    message: failures[item.path])
+            }
             for (path, reason) in failures {
                 AppLog.warn("trash delete failed", metadata: ["path": path, "error": reason])
             }
@@ -121,6 +155,12 @@ class CleanService {
         }.value
     }
     
+}
+
+nonisolated func isRemovalMissingError(_ error: Error) -> Bool {
+    let ns = error as NSError
+    return (ns.domain == NSCocoaErrorDomain && [4, 260].contains(ns.code))
+        || (ns.domain == NSPOSIXErrorDomain && ns.code == 2)
 }
 
 nonisolated func isRemovalPermissionError(_ error: Error) -> Bool {

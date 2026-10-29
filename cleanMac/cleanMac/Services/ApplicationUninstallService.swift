@@ -3,6 +3,7 @@ import Foundation
 struct AdministratorMoveOutcome: Sendable {
     let succeeded: Bool
     let message: String?
+    var trashPath: String? = nil
 }
 
 /// Finder 无法回收受权限保护的应用时，一次管理员授权处理整批应用。
@@ -85,7 +86,8 @@ enum ApplicationUninstallService {
                 && fileManager.fileExists(atPath: move.destination)
             outcomes[move.source] = .init(
                 succeeded: succeeded,
-                message: succeeded ? nil : (processError ?? "管理员授权后仍未能移动应用。")
+                message: succeeded ? nil : (processError ?? "管理员授权后仍未能移动应用。"),
+                trashPath: succeeded ? move.destination : nil
             )
         }
         return outcomes

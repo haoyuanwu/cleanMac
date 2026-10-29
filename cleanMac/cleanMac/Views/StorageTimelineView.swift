@@ -30,7 +30,7 @@ struct StorageTimelineView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-        .background(Theme.reviewCanvas(.blue))
+
         .task {
             guard !appeared else { return }
             appeared = true
@@ -119,7 +119,7 @@ struct StorageTimelineView: View {
             .background(Theme.surfaceSunk, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .padding(16)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .gradientGlass(cornerRadius: 18)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.cardStroke))
         .cardShadow()
         .animation(Theme.spring, value: selectedPeriod)

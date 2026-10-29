@@ -1,7 +1,7 @@
 import Foundation
 
 /// 文件风险分级：决定默认是否可一键清理、是否阻止删除
-enum FileRiskLevel: Int, Comparable, Sendable, Hashable {
+nonisolated enum FileRiskLevel: Int, Comparable, Codable, Sendable, Hashable {
     /// 低风险：缓存、日志等可安全清理
     case safe = 0
     /// 中风险：下载、安装包等用户文件，需确认
@@ -129,6 +129,12 @@ enum SafetyWhitelist {
             }
             return .safe
 
+        case .applicationCache:
+            // 非标准数据目录仅凭名称识别出的缓存需要用户确认。
+            let components = URL(fileURLWithPath: normalized).pathComponents.map { $0.lowercased() }
+            if normalized.hasPrefix("/Library/") { return .sensitive }
+            return components.contains("caches") || components.contains(".cache") ? .safe : .caution
+
         case .downloads, .installers, .largeFiles:
             return .caution
 
@@ -155,7 +161,7 @@ enum SafetyWhitelist {
     /// 为 FileItem 附加风险（在创建时调用）
     nonisolated static func annotated(_ item: FileItem, category: ScanCategory) -> FileItem {
         var copy = item
-        copy.riskLevel = riskLevel(for: item.path, category: category)
+        copy.riskLevel = max(riskLevel(for: item.path, category: category), item.cacheRuleMatch?.risk ?? .safe)
         return copy
     }
 

@@ -9,6 +9,8 @@ enum FileSizeFormatter: Sendable {
     }()
     
     nonisolated static func string(fromByteCount count: Int64) -> String {
-        formatter.string(fromByteCount: count)
+        if count == 0 { return "0 B" }
+        if count > 0 && count < 1024 { return "\(count) B" }
+        return formatter.string(fromByteCount: count)
     }
 }

@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// 视觉令牌：扁平底色 + 渐变强调 + 分层阴影 + 克制动效
+/// 视觉令牌：连续多色画布 + 渐变强调 + 分层阴影 + 克制动效
 enum Theme {
+    /// 导航卡片的小字号说明文本，分别适配浅色和深色表面。
+    static let navigationSecondary = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.36, green: 0.39, blue: 0.45, alpha: 1),
+        dark: NSColor(srgbRed: 0.72, green: 0.75, blue: 0.81, alpha: 1)
+    ))
     // MARK: - Surface
     static let cardFill = Color.primary.opacity(0.035)
     static let cardStroke = Color.primary.opacity(0.06)
@@ -33,6 +38,9 @@ enum Theme {
         light: NSColor(srgbRed: 0.980, green: 0.986, blue: 0.994, alpha: 1),
         dark: NSColor(srgbRed: 0.165, green: 0.184, blue: 0.220, alpha: 1)
     ))
+
+    /// 页面内轻量控件透出共享渐变；弹窗继续使用独立实底。
+    static let inlineSurface = surfaceRaised.opacity(0.32)
 
     /// 主区顶部冷色紫蓝洗染，产品仪表盘纵深
     static let canvasWash = LinearGradient(
@@ -292,6 +300,7 @@ struct ScanHeroControl: View {
     var finishedSubtitle: String? = nil
     var isEnabled: Bool = true
     var isSmartCleanEnabled: Bool = false
+    var primaryActionTitle = "开始扫描"
     var action: () -> Void
     var onSmartClean: (() -> Void)? = nil
     var onSegmentTap: ((Segment) -> Void)? = nil
@@ -713,25 +722,15 @@ struct ScanHeroControl: View {
                     icon
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
-                    if showSegments && !cleanableText.isEmpty {
-                        Text(cleanableText)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.65)
-                            .frame(width: buttonDiameter - 18)
-                    } else if isScanning {
+                    if isScanning {
                         Text("\(Int(scanProgress * 100))%")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .monospacedDigit()
+                            .font(.system(size: 14, weight: .bold, design: .rounded)).monospacedDigit()
                     } else {
-                        Text("开始清理")
+                        Text(primaryActionTitle)
                             .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundColor(.white.opacity(0.95))
                     }
                 }
+                .foregroundStyle(.white)
             }
             .scaleEffect(isPressed ? 0.94 : (isCenterHovered && isEnabled ? 1.04 : 1))
             .elevatedShadow()
@@ -781,7 +780,7 @@ struct ScanHeroControl: View {
             return storageUsedText.isEmpty ? "已使用 \(Int(storageUsed * 100))%" : "已使用 \(storageUsedText)"
         }
         switch phase {
-        case .idle: return "开始清理扫描"
+        case .idle: return "扫描垃圾缓存"
         case .scanning: return scanningTitle ?? "正在扫描垃圾…"
         case .finished:
             return finishedTitle ?? (cleanableText.isEmpty ? "重新扫描" : "预计可释放 \(cleanableText)")
@@ -797,7 +796,7 @@ struct ScanHeroControl: View {
         }
         switch phase {
         case .idle:
-            return "扫描缓存、浏览器缓存、日志、应用残留与废纸篓"
+            return "扫描系统缓存、应用缓存、浏览器缓存、日志、应用残留与废纸篓"
         case .scanning:
             return scanningSubtitle ?? "清理扫描进行中 · 完成后可再次扫描"
         case .finished:
@@ -893,5 +892,103 @@ struct MetricTile: View {
                         .stroke(Color.primary.opacity(0.05), lineWidth: 1)
                 )
         )
+    }
+}
+
+
+/// 仅在主窗口绘制一次。导航、页头和页面使用透明底，避免渐变在分区边缘重新起算。
+struct WorkspaceBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool { colorScheme == .dark }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let span = max(geometry.size.width, geometry.size.height)
+            ZStack {
+                LinearGradient(
+                    colors: isDark ? [
+                        Color(red: 0.13, green: 0.14, blue: 0.30),
+                        Color(red: 0.20, green: 0.13, blue: 0.29),
+                        Color(red: 0.08, green: 0.20, blue: 0.25)
+                    ] : [
+                        Color(red: 0.81, green: 0.84, blue: 0.98),
+                        Color(red: 0.91, green: 0.83, blue: 0.94),
+                        Color(red: 0.79, green: 0.92, blue: 0.94)
+                    ],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [Color(red: 0.40, green: 0.46, blue: 1.0).opacity(isDark ? 0.25 : 0.20), .clear],
+                    center: UnitPoint(x: 0.05, y: 0.18), startRadius: 0, endRadius: span * 0.72
+                )
+                RadialGradient(
+                    colors: [Color(red: 0.98, green: 0.48, blue: 0.69).opacity(isDark ? 0.16 : 0.23), .clear],
+                    center: UnitPoint(x: 0.90, y: 0.08), startRadius: 0, endRadius: span * 0.62
+                )
+                RadialGradient(
+                    colors: [Color(red: 0.14, green: 0.77, blue: 0.86).opacity(isDark ? 0.18 : 0.24), .clear],
+                    center: UnitPoint(x: 0.74, y: 0.95), startRadius: 0, endRadius: span * 0.62
+                )
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+
+/// 统一渐变玻璃表面：材质柔化背景，冷暖洗色与边缘高光建立层次。
+struct GradientGlassSurface: View {
+    var cornerRadius: CGFloat = 18
+    var highlighted = false
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            if reduceTransparency { shape.fill(Theme.surfaceRaised) }
+            else {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(LinearGradient(
+                    colors: [Color.indigo.opacity(scheme == .dark ? 0.18 : 0.10), Color.pink.opacity(0.06), Color.cyan.opacity(scheme == .dark ? 0.13 : 0.10)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
+            shape.fill(LinearGradient(
+                colors: [.white.opacity(highlighted ? (scheme == .dark ? 0.07 : 0.16) : 0), Color.cyan.opacity(highlighted ? 0.07 : 0)],
+                startPoint: .topLeading, endPoint: .bottomTrailing))
+            shape.strokeBorder(LinearGradient(
+                colors: [.white.opacity(highlighted ? (scheme == .dark ? 0.42 : 0.88) : (scheme == .dark ? 0.22 : 0.60)),
+                         .white.opacity(highlighted ? 0.22 : 0.08), Color.indigo.opacity(highlighted ? 0.30 : 0.12)],
+                startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+        }
+        .allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+private struct GradientGlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    let enabled: Bool
+    @State private var hovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background {
+                if enabled {
+                    GradientGlassSurface(cornerRadius: cornerRadius, highlighted: hovered)
+                        .shadow(color: Color.indigo.opacity(hovered ? 0.13 : 0.025), radius: hovered ? 16 : 5, y: hovered ? 6 : 2)
+                        .animation(reduceMotion ? nil : .easeOut(duration: hovered ? 0.18 : 0.24), value: hovered)
+                }
+            }
+            .onHover { hovered = $0 }
+            .onDisappear { hovered = false }
+    }
+}
+
+extension View {
+    func gradientGlass(cornerRadius: CGFloat = 18, enabled: Bool = true) -> some View {
+        modifier(GradientGlassCardModifier(cornerRadius: cornerRadius, enabled: enabled))
     }
 }

@@ -31,7 +31,7 @@ struct XcodeAnalysisView: View {
             }
         }
         .navigationTitle("")
-        .background(Theme.reviewCanvas(.indigo))
+
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !viewModel.selectedPaths.isEmpty, !viewModel.isScanning {
                 selectionBar
@@ -332,11 +332,6 @@ struct XcodeAnalysisView: View {
         .background {
             GeometryReader { geometry in
                 ZStack {
-                    LinearGradient(
-                        colors: [Theme.surfaceRaised, Theme.surfaceRaised.opacity(0.92)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
                     selectionGradient
                         .opacity(colorScheme == .dark ? 0.20 : 0.13)
                         .mask(alignment: .leading) {
@@ -350,6 +345,7 @@ struct XcodeAnalysisView: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
+        .gradientGlass(cornerRadius: 18)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Theme.cardStroke, lineWidth: 1)

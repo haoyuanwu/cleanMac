@@ -21,6 +21,7 @@ class MainViewModel: ObservableObject {
     @Published var storageInfo: StorageInfo?
     
     @Published var scanResults: [ScanCategory: ScanResult] = [:]
+    @Published private(set) var applicationCacheComparison: CacheScanComparison?
     @Published var selectedCategory: ScanCategory?
     @Published var scanState: ScanState = .idle
     @Published var overallProgress: Double = 0
@@ -39,6 +40,11 @@ class MainViewModel: ObservableObject {
     @Published var uninstallEstimates: [AppLeftoverEstimate] = []
     @Published var selectedLeftoverPaths: Set<String> = []
     @Published var showingUninstallDialog = false
+    @Published private(set) var isEstimatingUninstall = false
+    @Published private(set) var isQuittingUninstallApplications = false
+    @Published private(set) var isUninstalling = false
+    @Published private(set) var uninstallRunningApplications: [RunningUninstallApplication] = []
+    @Published var uninstallStatusMessage: String?
     /// 智能清理确认
     @Published var smartCleanDraft: SmartCleanPlan?
     @Published var smartCleanSelectedPaths: Set<String> = []
@@ -105,7 +111,15 @@ class MainViewModel: ObservableObject {
     private let scanService = ScanService()
     private let cleanService = CleanService()
     private var deviceStatusSubscription: AnyCancellable?
+    private var cacheRulesSubscription: AnyCancellable?
+    private var activeScanIDs: [ScanCategory: UUID] = [:]
+    private var activeScanCollectors: [ScanCategory: ScanDiagnosticsCollector] = [:]
+    private var applicationCacheScanFingerprint: String?
     private var applicationsWaitingForPermission: [FileItem] = []
+    private var leftoversWaitingForPermission: [AppLeftoverItem] = []
+    private var uninstallEstimateTask: Task<Void, Never>?
+    private var uninstallRequestID: UUID?
+    private var uninstallRuntimeSubscriptions = Set<AnyCancellable>()
     private var isWaitingForAppManagementSettings = false
     private var scanAllTask: Task<Void, Never>?
     private let donationPromptShownKey = "donationPromptShownAfterFirstScan"
@@ -175,6 +189,28 @@ class MainViewModel: ObservableObject {
     // MARK: - Init
     
     init() {
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.publisher(for: name)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    guard self?.showingUninstallDialog == true else { return }
+                    self?.refreshUninstallRunningApplications()
+                }.store(in: &uninstallRuntimeSubscriptions)
+        }
+        cacheRulesSubscription = NotificationCenter.default.publisher(for: CacheRuleStore.didChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.applicationCacheScanFingerprint != CacheRuleStore.shared.activeCatalog.fingerprint {
+                    self.activeScanCollectors[.applicationCache]?.requestCancellation()
+                    self.activeScanCollectors[.applicationCache] = nil
+                    self.activeScanIDs[.applicationCache] = nil
+                    self.scanResults[.applicationCache] = nil
+                    self.applicationCacheComparison = nil
+                    self.applicationCacheScanFingerprint = nil
+                }
+                CacheScanIgnoreStore.shared.removeAll()
+            }
         deviceStatusSubscription = DeviceStatusMonitor.shared.$snapshot
             .compactMap { $0?.storageInfo }
             .sink { [weak self] in self?.storageInfo = $0 }
@@ -193,7 +229,7 @@ class MainViewModel: ObservableObject {
     // MARK: - Actions
 
     /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
-    func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = true) async {
+    func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = false) async {
         guard !isScanning else { return }
 
         scanState = .scanning
@@ -254,13 +290,39 @@ class MainViewModel: ObservableObject {
         }
     }
     
+    func cancelCategoryScan(_ category: ScanCategory) {
+        activeScanCollectors[category]?.requestCancellation()
+        scanResults[category]?.diagnostics = activeScanCollectors[category]?.snapshot()
+        if isScanning { cancelScanAll() }
+    }
+
     /// 扫描单个类别
-    func scanCategory(_ category: ScanCategory) async {
-        scanResults[category] = ScanResult(category: category, items: [], isScanning: true)
+    func scanCategory(_ category: ScanCategory, forceFull: Bool = false) async {
+        guard scanResults[category]?.isScanning != true else { return }
+        let scanID = UUID()
+        activeScanIDs[category] = scanID
+        let rules = CacheRuleStore.shared.activeCatalog
+        if category == .applicationCache { applicationCacheScanFingerprint = rules.fingerprint }
+        let collector = ScanDiagnosticsCollector()
+        activeScanCollectors[category] = collector
+        scanResults[category] = ScanResult(category: category, items: [], isScanning: true,
+                                         diagnostics: collector.snapshot())
+        let progress = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard !Task.isCancelled, self?.activeScanIDs[category] == scanID else { return }
+                self?.scanResults[category]?.diagnostics = collector.snapshot()
+            }
+        }
+        defer {
+            progress.cancel()
+            if activeScanIDs[category] == scanID { activeScanCollectors[category] = nil }
+        }
         
         var items: [FileItem] = []
         var scanError: String?
         
+        await ScanContext.$diagnostics.withValue(collector) {
         switch category {
         case .systemCache:
             items = await scanService.scanSystemCache()
@@ -268,6 +330,8 @@ class MainViewModel: ObservableObject {
             items = await scanService.scanLogFiles()
         case .browserCache:
             items = await scanService.scanBrowserCache()
+        case .applicationCache:
+            items = await ApplicationCacheScanner.scan(catalog: rules, forceFull: forceFull)
         case .trash:
             let outcome = await scanService.scanTrash()
             items = outcome.items
@@ -284,13 +348,23 @@ class MainViewModel: ObservableObject {
             items = await scanService.scanInstallers()
         }
         
+        }
+        guard activeScanIDs[category] == scanID else { return }
+        if category == .applicationCache, CacheRuleStore.shared.activeCatalog.fingerprint != rules.fingerprint {
+            scanResults[category] = nil
+            return
+        }
+        let diagnostics = collector.snapshot(finished: true, cancelled: Task.isCancelled)
         scanResults[category] = ScanResult(
             category: category,
             items: items
                 .map { SafetyWhitelist.annotated($0, category: category) }
                 .filter { SafetyWhitelist.canDelete(path: $0.path) && !UserWhitelist.isWhitelisted($0.path) },
-            error: scanError
+            error: diagnostics.summary ?? scanError,
+            diagnostics: diagnostics
         )
+        if category == .applicationCache { applicationCacheComparison = CacheScanIndex.shared.lastComparison }
+        ScanPathOwnership.reconcile(&scanResults)
     }
 
     /// 智能清理推荐集
@@ -402,6 +476,10 @@ class MainViewModel: ObservableObject {
     /// 清理指定类别
     func cleanCategory(_ category: ScanCategory) async {
         guard let result = scanResults[category], !result.items.isEmpty else { return }
+        if category == .trash {
+            requestDeleteFiles(result.items, from: .trash)
+            return
+        }
         if category == .applications {
             requestDeleteFiles(result.items, from: .applications)
             return
@@ -426,7 +504,7 @@ class MainViewModel: ObservableObject {
         scanState = .cleaning
         
         let groups = scanResults.compactMap { category, result -> (ScanCategory, [FileItem])? in
-            guard category != .applications, !result.items.isEmpty, !result.isCleaned else { return nil }
+            guard category != .applications, category != .trash, !result.items.isEmpty, !result.isCleaned else { return nil }
             return (category, result.items)
         }
         let outcome = await cleanService.cleanBatch(groups)
@@ -438,9 +516,17 @@ class MainViewModel: ObservableObject {
         scanState = .completed
     }
 
-    private func applyCleanOutcome(_ outcome: CleanOutcome) {
+    private func removeScannedPaths(_ paths: Set<String>) {
         for category in Array(scanResults.keys) {
-            scanResults[category]?.items.removeAll { outcome.removedPaths.contains($0.path) }
+            let removed = { (item: FileItem) in paths.contains { item.path == $0 || item.path.hasPrefix($0 + "/") } }
+            scanResults[category]?.items.removeAll(where: removed)
+            scanResults[category]?.overlappingItems.removeAll(where: removed)
+        }
+    }
+
+    private func applyCleanOutcome(_ outcome: CleanOutcome) {
+        removeScannedPaths(outcome.removedPaths)
+        for category in Array(scanResults.keys) {
             if scanResults[category]?.items.isEmpty == true {
                 scanResults[category]?.isCleaned = true
             }
@@ -448,7 +534,7 @@ class MainViewModel: ObservableObject {
     }
 
     private func cleanOutcomeMessage(_ outcome: CleanOutcome) -> String {
-        var message = "已清理 \(outcome.removedPaths.count) 项，释放 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes)) 空间。"
+        var message = "已处理 \(outcome.removedPaths.count) 项，逻辑大小 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes))。常规项目已移到废纸篓，可在设置的清理记录中恢复；清空废纸篓后才可能释放空间，实际释放量受 APFS 共享块等因素影响。"
         if !outcome.failures.isEmpty {
             let details = outcome.failures.sorted { $0.key < $1.key }.prefix(3)
                 .map { "\($0.key)：\($0.value)" }.joined(separator: "\n")
@@ -505,6 +591,7 @@ class MainViewModel: ObservableObject {
 
     /// 请求批量删除文件（显示确认对话框）
     func requestDeleteFiles(_ files: [FileItem], from category: ScanCategory) {
+        let files = ScanPathOwnership.unique([(category, files)]).map { $0.1 }
         guard !files.isEmpty else { return }
 
         // 应用卸载：直接弹残留估算对话框
@@ -519,40 +606,92 @@ class MainViewModel: ObservableObject {
         showingDeleteConfirmation = true
     }
 
-    /// 估算残留并展示卸载对话框
+    /// 先展示可取消的扫描状态，清单完成后只预选明确归属的缓存、日志及状态存档。
     func requestUninstall(_ files: [FileItem]) {
-        pendingDeleteFiles = files
+        guard !isUninstalling else { return }
+        let allowed = files.filter { ApplicationUninstallPreflight.canUninstall($0.path) }
+        guard !allowed.isEmpty else {
+            alertTitle = "应用受保护或路径已变化"
+            alertMessage = "无法卸载系统应用、cleanMac 自身、白名单项目或应用包内的辅助程序。请重新扫描应用列表。"
+            showingAlert = true
+            return
+        }
+        uninstallEstimateTask?.cancel()
+        let requestID = UUID()
+        uninstallRequestID = requestID
+        pendingDeleteFiles = allowed
         pendingDeleteCategory = .applications
-        Task {
+        selectedLeftoverPaths = []
+        uninstallEstimates = []
+        uninstallStatusMessage = allowed.count == files.count ? nil : "已排除 \(files.count - allowed.count) 个受保护、路径已变化或无法卸载的项目。"
+        isEstimatingUninstall = true
+        showingUninstallDialog = true
+        refreshUninstallRunningApplications()
+        uninstallEstimateTask = Task {
+            let applications = await ScanTask.run { ApplicationCacheScanner.installedApplications() }
             var estimates: [AppLeftoverEstimate] = []
-            for file in files {
-                let estimate = await AppLeftoverScanner.estimate(for: file.path)
-                estimates.append(estimate)
+            for file in allowed {
+                guard !Task.isCancelled, uninstallRequestID == requestID else { return }
+                estimates.append(await AppLeftoverScanner.estimate(for: file.path, applications: applications))
             }
-            await MainActor.run {
-                self.uninstallEstimates = estimates
-                self.selectedLeftoverPaths = Set(estimates.flatMap(\.leftovers).map(\.path))
-                self.showingUninstallDialog = true
-            }
+            guard !Task.isCancelled, uninstallRequestID == requestID else { return }
+            uninstallEstimates = estimates
+            selectedLeftoverPaths = Set(AppLeftoverSelection.merged(estimates).filter(\.defaultSelected).map(\.path))
+            isEstimatingUninstall = false
+            refreshUninstallRunningApplications()
         }
     }
 
-    /// 确认卸载（可选清理勾选的残留）
-    func confirmUninstall() {
-        let files = pendingDeleteFiles
-        let leftoverPaths = Array(selectedLeftoverPaths)
-        cancelUninstall()
+    func refreshUninstallRunningApplications() {
+        let selected = AppLeftoverSelection.merged(uninstallEstimates).filter { selectedLeftoverPaths.contains($0.path) }
+        let identifiers = selected.reduce(into: Set(uninstallEstimates.compactMap(\.bundleIdentifier))) { $0.formUnion($1.relatedBundleIdentifiers) }
+        let paths = selected.reduce(into: Set(pendingDeleteFiles.map(\.path))) { $0.formUnion($1.relatedApplicationPaths) }
+        uninstallRunningApplications = ApplicationRuntimeControl.running(appPaths: paths, bundleIdentifiers: identifiers)
+    }
 
+    func quitUninstallRunningApplications() {
+        guard !isQuittingUninstallApplications else { return }
+        refreshUninstallRunningApplications()
+        let processes = uninstallRunningApplications
+        let requestID = uninstallRequestID
+        isQuittingUninstallApplications = true
+        uninstallStatusMessage = nil
         Task {
-            await uninstallApplications(files, leftoverPaths: leftoverPaths)
+            let failures = await ApplicationRuntimeControl.requestQuit(processes)
+            guard uninstallRequestID == requestID else { return }
+            isQuittingUninstallApplications = false
+            refreshUninstallRunningApplications()
+            if !uninstallRunningApplications.isEmpty {
+                uninstallStatusMessage = (failures + ["部分应用仍在运行，请保存工作并手动退出后重新检查。"]).joined(separator: "\n")
+            } else { uninstallStatusMessage = "相关应用已退出，请核对清单后确认卸载。" }
         }
+    }
+
+    func confirmUninstall() {
+        guard !isEstimatingUninstall, !isQuittingUninstallApplications else { return }
+        refreshUninstallRunningApplications()
+        guard uninstallRunningApplications.isEmpty else {
+            uninstallStatusMessage = "相关应用仍在运行，请先保存工作并退出。"
+            return
+        }
+        let files = pendingDeleteFiles
+        let leftovers = AppLeftoverSelection.coveredOnce(AppLeftoverSelection.merged(uninstallEstimates).filter { $0.isSelectable && selectedLeftoverPaths.contains($0.path) })
+        cancelUninstall()
+        Task { await uninstallApplications(files, leftovers: leftovers) }
     }
 
     func cancelUninstall() {
+        uninstallEstimateTask?.cancel()
+        uninstallEstimateTask = nil
+        uninstallRequestID = nil
         pendingDeleteFiles = []
         pendingDeleteCategory = nil
         uninstallEstimates = []
         selectedLeftoverPaths = []
+        uninstallRunningApplications = []
+        uninstallStatusMessage = nil
+        isEstimatingUninstall = false
+        isQuittingUninstallApplications = false
         showingUninstallDialog = false
     }
 
@@ -578,7 +717,7 @@ class MainViewModel: ObservableObject {
 
         if category == .applications {
             // 兜底：若走了旧确认框，也走卸载
-            Task { await uninstallApplications(files, leftoverPaths: []) }
+            Task { await uninstallApplications(files, leftovers: []) }
             return
         }
 
@@ -597,12 +736,16 @@ class MainViewModel: ObservableObject {
                 do {
                     if category == .trash {
                         try fileManager.removeItem(at: file.pathURL)
+                        CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: category.rawValue, state: .permanentlyDeleted)
                     } else {
-                        try fileManager.trashItem(at: file.pathURL, resultingItemURL: nil)
+                        try await Task.detached(priority: .userInitiated) {
+                            try CleaningHistoryStore.shared.moveToTrash(path: file.path, size: file.size, category: category.rawValue)
+                        }.value
                     }
                     didRemove = true
                 } catch {
                     if isFileGoneError(error) {
+                        CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: category.rawValue, state: .alreadyMissing)
                         didRemove = true
                         AppLog.info("delete skip already gone", metadata: ["path": file.path])
                     } else if [.logFiles, .systemCache].contains(category), isPermissionError(error),
@@ -618,10 +761,13 @@ class MainViewModel: ObservableObject {
                     }
                 }
 
+                if category == .trash, let failureMessage {
+                    CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: category.rawValue, state: .failed, message: failureMessage)
+                }
                 if didRemove {
                     removed += 1
                     AppLog.info("deleted", metadata: ["path": file.path])
-                    scanResults[category]?.items.removeAll { $0.path == file.path }
+                    removeScannedPaths([file.path])
                 } else {
                     failed += 1
                     let detail = failureMessage ?? "未知错误"
@@ -637,10 +783,15 @@ class MainViewModel: ObservableObject {
                 }.value
                 for file in privilegedFiles {
                     let outcome = outcomes[file.path]
+                    await Task.detached {
+                        CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: category.rawValue,
+                            state: outcome?.succeeded == true ? .movedToTrash : .failed,
+                            trashPath: outcome?.trashPath, message: outcome?.message)
+                    }.value
                     if outcome?.succeeded == true {
                         removed += 1
                         AppLog.info("deleted", metadata: ["path": file.path])
-                        scanResults[category]?.items.removeAll { $0.path == file.path }
+                        removeScannedPaths([file.path])
                     } else {
                         failed += 1
                         let detail = outcome?.message ?? "管理员授权后仍未能移动项目。"
@@ -656,10 +807,13 @@ class MainViewModel: ObservableObject {
                     PrivilegedRemovalService.remove(paths: paths)
                 }.value
                 for file in privilegedTrashDeletionFiles {
+                    CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: category.rawValue,
+                        state: outcome.removedPaths.contains(file.path) ? .permanentlyDeleted : .failed,
+                        message: outcome.failures[file.path])
                     if outcome.removedPaths.contains(file.path) {
                         removed += 1
                         AppLog.info("deleted", metadata: ["path": file.path])
-                        scanResults[category]?.items.removeAll { $0.path == file.path }
+                        removeScannedPaths([file.path])
                     } else {
                         failed += 1
                         let detail = outcome.failures[file.path] ?? "管理员授权后仍未能删除。"
@@ -708,28 +862,59 @@ class MainViewModel: ObservableObject {
     /// 使用 Finder 式回收操作卸载应用，系统可在需要时请求管理员授权。
     private func uninstallApplications(
         _ files: [FileItem],
-        leftoverPaths: [String] = [],
+        leftovers: [AppLeftoverItem] = [],
         afterPermissionRequest: Bool = false
     ) async {
-        guard !files.isEmpty else { return }
+        guard !files.isEmpty, !isUninstalling else { return }
+        let bundleIDs = Set(files.compactMap { NSDictionary(contentsOf: $0.pathURL.appendingPathComponent("Contents/Info.plist"))?["CFBundleIdentifier"] as? String })
+        let relatedIDs = leftovers.reduce(into: bundleIDs) { $0.formUnion($1.relatedBundleIdentifiers) }
+        let relatedPaths = leftovers.reduce(into: Set(files.map(\.path))) { $0.formUnion($1.relatedApplicationPaths) }
+        guard files.allSatisfy({ ApplicationUninstallPreflight.canUninstall($0.path) }),
+              ApplicationRuntimeControl.running(appPaths: relatedPaths, bundleIdentifiers: relatedIDs).isEmpty else {
+            alertTitle = "卸载前检查未通过"
+            alertMessage = "应用路径可能已变化、受到保护，或相关应用仍在运行。请重新扫描，并保存工作后退出相关应用。"
+            showingAlert = true
+            return
+        }
+        isUninstalling = true
+        defer { isUninstalling = false }
 
         let (recycledPaths, recycleError) = await withCheckedContinuation {
-            (continuation: CheckedContinuation<(Set<String>, String?), Never>) in
+            (continuation: CheckedContinuation<([String: String], String?), Never>) in
             NSWorkspace.shared.recycle(files.map(\.pathURL)) { newURLs, error in
-                continuation.resume(returning: (Set(newURLs.keys.map(\.path)), error?.localizedDescription))
+                continuation.resume(returning: (Dictionary(uniqueKeysWithValues: newURLs.map { ($0.key.path, $0.value.path) }), error?.localizedDescription))
             }
         }
 
-        var movedPaths = recycledPaths
+        var movedPaths = Set(recycledPaths.keys)
+        await Task.detached {
+            for file in files {
+                if let destination = recycledPaths[file.path] {
+                    CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: ScanCategory.applications.rawValue,
+                        state: .movedToTrash, trashPath: destination)
+                }
+            }
+        }.value
         var failureDetails: [String] = []
         let remaining = files.filter { !movedPaths.contains($0.path) }
         if !remaining.isEmpty {
             let paths = remaining.map(\.path)
-            let outcomes = await Task.detached(priority: .userInitiated) {
-                ApplicationUninstallService.moveToTrashWithAdministratorPrivileges(appPaths: paths)
-            }.value
+            let runningAgain = ApplicationRuntimeControl.running(appPaths: relatedPaths, bundleIdentifiers: relatedIDs)
+            let outcomes: [String: AdministratorMoveOutcome]
+            if runningAgain.isEmpty {
+                outcomes = await Task.detached(priority: .userInitiated) {
+                    ApplicationUninstallService.moveToTrashWithAdministratorPrivileges(appPaths: paths)
+                }.value
+            } else {
+                outcomes = Dictionary(uniqueKeysWithValues: paths.map { ($0, AdministratorMoveOutcome(succeeded: false, message: "相关应用重新运行，已保留应用和关联数据，请退出后重试。")) })
+            }
             for file in remaining {
                 let outcome = outcomes[file.path]
+                await Task.detached {
+                    CleaningHistoryStore.shared.record(path: file.path, size: file.size, category: ScanCategory.applications.rawValue,
+                        state: outcome?.succeeded == true ? .movedToTrash : .failed,
+                        trashPath: outcome?.trashPath, message: outcome?.message)
+                }.value
                 if outcome?.succeeded == true {
                     movedPaths.insert(file.path)
                 } else {
@@ -738,19 +923,22 @@ class MainViewModel: ObservableObject {
             }
         }
 
-        scanResults[.applications]?.items.removeAll { movedPaths.contains($0.path) }
+        removeScannedPaths(movedPaths)
 
         let failedCount = files.count - movedPaths.count
         // 清理勾选的残留
         var leftoverNote = ""
         var leftoverFailed = 0
-        if failedCount == 0 && !leftoverPaths.isEmpty {
-            let outcome = await Task.detached {
-                AppLeftoverScanner.removeLeftovers(leftoverPaths)
-            }.value
+        var leftoverDetails: [String] = []
+        if failedCount == 0 && !leftovers.isEmpty {
+            let stillRunning = ApplicationRuntimeControl.running(appPaths: relatedPaths, bundleIdentifiers: relatedIDs)
+            let outcome = stillRunning.isEmpty ? await Task.detached {
+                AppLeftoverScanner.removeLeftovers(leftovers)
+            }.value : (removed: 0, failed: leftovers.count, details: ["相关应用重新运行，已保留关联数据。"])
             leftoverFailed = outcome.failed
+            leftoverDetails = outcome.details
             leftoverNote = outcome.removed > 0
-                ? "，并删除了 \(outcome.removed) 处残留"
+                ? "，并将 \(outcome.removed) 处关联数据移到废纸篓"
                 : ""
         }
 
@@ -758,24 +946,26 @@ class MainViewModel: ObservableObject {
             alertTitle = leftoverFailed == 0 ? "卸载完成" : "部分残留清理失败"
             alertMessage = "已将 \(files.count) 个应用移到废纸篓。\(leftoverNote)"
             if leftoverFailed > 0 {
-                alertMessage += "\n\(leftoverFailed) 处残留未能删除，请检查权限后重试。"
+                alertMessage += "\n\(leftoverFailed) 处关联数据已保留，请重新检查。\n" + leftoverDetails.prefix(3).joined(separator: "\n")
             }
         } else {
             let failedFiles = files.filter { !movedPaths.contains($0.path) }
             if !afterPermissionRequest,
                failureIndicatesMissingPermission(recycleError, details: failureDetails) {
                 applicationsWaitingForPermission = failedFiles
+                leftoversWaitingForPermission = leftovers
                 isWaitingForAppManagementSettings = true
                 if PrivacySettingsOpener.openAppManagement() {
                     return
                 }
                 applicationsWaitingForPermission = []
+                leftoversWaitingForPermission = []
                 isWaitingForAppManagementSettings = false
             }
 
             alertTitle = failedCount == files.count ? "卸载失败" : "部分应用卸载失败"
             let detail = failureDetails.prefix(3).joined(separator: "\n")
-            alertMessage = "\(failedCount) 个应用未能移到废纸篓。请在「系统设置 → 隐私与安全性 → 应用管理」中检查 cleanMac 的授权，并确认应用已退出。受系统保护的应用可能无法卸载。\n\(detail)"
+            alertMessage = (leftovers.isEmpty ? "" : "所选关联数据已保留。\n") + "\(failedCount) 个应用未能移到废纸篓。请在「系统设置 → 隐私与安全性 → 应用管理」中检查 cleanMac 的授权，并确认应用已退出。受系统保护的应用可能无法卸载。\n\(detail)"
         }
         showingAlert = true
     }
@@ -786,7 +976,9 @@ class MainViewModel: ObservableObject {
         isWaitingForAppManagementSettings = false
         let files = applicationsWaitingForPermission
         applicationsWaitingForPermission = []
-        Task { await uninstallApplications(files, afterPermissionRequest: true) }
+        let leftovers = leftoversWaitingForPermission
+        leftoversWaitingForPermission = []
+        Task { await uninstallApplications(files, leftovers: leftovers, afterPermissionRequest: true) }
     }
 
     private func failureIndicatesMissingPermission(_ recycleError: String?, details: [String]) -> Bool {

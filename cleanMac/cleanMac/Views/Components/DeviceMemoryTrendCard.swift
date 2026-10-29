@@ -86,7 +86,7 @@ struct DeviceMemoryTrendCard: View {
                 .frame(height: compact ? nil : PerformanceMonitorLayout.footerHeight)
         }
         .padding(embedded ? 0 : 14)
-        .background(embedded ? Color.clear : Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .gradientGlass(cornerRadius: 14, enabled: !embedded)
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(embedded ? Color.clear : Theme.cardStroke))
     }
 

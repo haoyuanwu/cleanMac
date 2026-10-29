@@ -14,17 +14,25 @@ struct SmartCleanPlan: Identifiable {
     var isEmpty: Bool { items.isEmpty }
 
     static func build(from scanResults: [ScanCategory: ScanResult]) -> SmartCleanPlan {
+        let owned = ScanPathOwnership.unique(ScanCategory.allCases.compactMap { category in
+            guard category != .trash, let result = scanResults[category], !result.isCleaned,
+                  result.diagnostics?.status != .cancelled, result.diagnostics?.status != .running else { return nil }
+            return (category, result.items)
+        })
         var picked: [FileItem] = []
         var summary: [(ScanCategory, Int64, Int)] = []
 
         for category in ScanCategory.allCases {
             guard let result = scanResults[category],
                   !result.isCleaned,
+                  result.diagnostics?.status != .cancelled,
+                  result.diagnostics?.status != .running,
                   !result.items.isEmpty else { continue }
 
-            let recommended = result.items.filter {
+            let recommended = owned.filter { $0.0 == category }.map { $0.1 }.filter {
                 SafetyWhitelist.isRecommendedForAutoClean($0.riskLevel)
                     && SafetyWhitelist.canDelete(path: $0.path)
+                    && ($0.storage?.cloudPlaceholderCount ?? 0) == 0
             }
             guard !recommended.isEmpty else { continue }
 

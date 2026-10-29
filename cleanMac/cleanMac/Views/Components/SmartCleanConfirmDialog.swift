@@ -35,7 +35,7 @@ struct SmartCleanConfirmDialog: View {
                 HStack(spacing: 10) {
                     summaryTile("推荐项目", value: "\(plan.items.count) 项", tint: .blue)
                     summaryTile("已选项目", value: "\(selectedItems.count) 项", tint: .orange)
-                    summaryTile("预计清理", value: FileSizeFormatter.string(fromByteCount: selectedSize), tint: .green)
+                    summaryTile("逻辑大小", value: FileSizeFormatter.string(fromByteCount: selectedSize), tint: .green)
                 }
 
                 if !plan.categorySummary.isEmpty {
@@ -118,7 +118,7 @@ struct SmartCleanConfirmDialog: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("智能清理确认")
                     .font(.system(size: 21, weight: .bold, design: .rounded))
-                Text("确认将清理的缓存、日志等推荐项目。取消勾选即可保留对应内容。")
+                Text("所选缓存和日志将移到废纸篓，可在设置中恢复。清空废纸篓需单独确认。")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -139,7 +139,7 @@ struct SmartCleanConfirmDialog: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("将清理 \(selectedItems.count) 项 · \(FileSizeFormatter.string(fromByteCount: selectedSize))")
+            Text("将移到废纸篓 \(selectedItems.count) 项 · 逻辑大小 \(FileSizeFormatter.string(fromByteCount: selectedSize))；清空后才可能释放空间。")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.secondary)
 

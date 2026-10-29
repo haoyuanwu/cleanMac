@@ -13,6 +13,7 @@ struct CategoryDetailView: View {
     @State private var isSearchExpanded = false
     @State private var selectedFiles = Set<FileItem.ID>()
     @State private var showingEmptyTrashConfirmation = false
+    @State private var showingDiagnostics = false
     @State private var previewImage: FileItem?
     @State private var appearProgress: CGFloat = 0
     @FocusState private var isSearchFocused: Bool
@@ -58,8 +59,10 @@ struct CategoryDetailView: View {
             filtered = filtered.filter { file in
                 let name = normalizedSearchText(file.name)
                 let path = normalizedSearchText(file.path)
+                let application = normalizedSearchText(file.cacheApplication?.name ?? "")
                 return keywords.allSatisfy { keyword in
                     fuzzyContains(keyword, in: name) || fuzzyContains(keyword, in: path)
+                        || fuzzyContains(keyword, in: application)
                 }
             }
         }
@@ -100,7 +103,7 @@ struct CategoryDetailView: View {
             }
         }
         .padding(3)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.inlineSurface, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06)))
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .contain)
@@ -142,16 +145,41 @@ struct CategoryDetailView: View {
     
     var body: some View {
         ZStack {
-            pageBackground
-
             VStack(spacing: 0) {
                 if result?.isScanning != true {
                     headerBar
+                    if let result, !result.items.isEmpty || !result.overlappingItems.isEmpty {
+                        DisclosureGroup("空间统计与扫描说明") {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("磁盘占用 \(result.allocatedSize.map { FileSizeFormatter.string(fromByteCount: $0) } ?? "未完整获取") · 已识别云端占位 \(result.cloudPlaceholderCount) 个")
+                                Text("磁盘占用为元数据估算，APFS 共享块、快照和废纸篓会影响实际释放量。")
+                                if !result.overlappingItems.isEmpty { Text("另有 \(result.overlappingItems.count) 项已归属其他类别，此处不重复统计。") }
+                                if category == .applicationCache {
+                                    if let comparison = viewModel.applicationCacheComparison {
+                                        Text(comparison.description)
+                                        Text("复用 \(comparison.reusedRoots) 个目录 · 重扫 \(comparison.rescannedRoots) 个目录；复用前已校验规则、身份、权限、变化版本与元数据。")
+                                    }
+                                    if let error = CacheScanIndex.shared.persistenceError { Text(error) }
+                                }
+                            }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary).padding(.top, 6)
+                        }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                            .padding(.horizontal, 22).padding(.bottom, 12)
+                    }
+
                 }
 
                 if let result = result {
                     if result.isScanning {
-                        scanningView
+                        VStack(spacing: 12) {
+                            scanningView
+                            if result.diagnostics != nil {
+                                Button("诊断详情") { showingDiagnostics = true }.buttonStyle(.plain)
+                                    .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                            }
+                            Button(result.diagnostics?.status == .cancelled ? "正在取消…" : "取消扫描") { viewModel.cancelCategoryScan(category) }
+                                .disabled(result.diagnostics?.status == .cancelled)
+                                .padding(.bottom, 22)
+                        }
                     } else if result.items.isEmpty && result.error != nil {
                         scanErrorView
                     } else if result.items.isEmpty {
@@ -163,6 +191,9 @@ struct CategoryDetailView: View {
                     preScanView
                 }
             }
+        }
+        .sheet(isPresented: $showingDiagnostics) {
+            if let diagnostics = result?.diagnostics { ScanDiagnosticsView(category: category, diagnostics: diagnostics) }
         }
         .navigationTitle("")
         .sheet(item: $previewImage) { file in
@@ -227,22 +258,6 @@ struct CategoryDetailView: View {
         .animation(Theme.spring, value: viewModel.isEmptyingTrash)
     }
 
-    private var pageBackground: some View {
-        ZStack {
-            Theme.canvas
-            LinearGradient(
-                colors: [
-                    category.color.opacity(0.18),
-                    Color(red: 0.60, green: 0.67, blue: 0.98).opacity(0.10),
-                    category.color.opacity(0.05)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-        .ignoresSafeArea()
-    }
-    
     // MARK: - 顶部信息区（左：标题+指标 / 右：操作）
     private var headerBar: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -265,11 +280,19 @@ struct CategoryDetailView: View {
             }
 
             if let result = result, !result.items.isEmpty {
-                MetricPill(title: "总大小", value: result.totalSizeFormatted, color: .orange)
+                MetricPill(title: "逻辑大小", value: result.totalSizeFormatted, color: .orange)
                 MetricPill(title: "\(category.itemUnit)数", value: "\(result.itemCount)")
             }
 
             Spacer(minLength: 12)
+            if result?.diagnostics != nil {
+                Button { showingDiagnostics = true } label: { Image(systemName: "info.circle") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(result?.diagnostics?.summary == nil ? Color.secondary : Color.orange)
+                    .help(result?.diagnostics?.summary == nil ? "查看扫描诊断" : "扫描结果不完整，查看诊断")
+                    .accessibilityLabel("查看扫描诊断").accessibilityValue(result?.diagnostics?.summary ?? "扫描完成")
+            }
+
 
             if let result = result, !result.items.isEmpty {
                 HStack(spacing: 10) {
@@ -285,13 +308,7 @@ struct CategoryDetailView: View {
                         .help(result.error == nil ? "永久删除废纸篓中的所有项目" : "部分废纸篓无法读取，请先授予权限")
                     }
 
-                    DetailTextButton(
-                        title: "重新扫描",
-                        systemImage: "arrow.clockwise"
-                    ) {
-                        Task { await viewModel.scanCategory(category) }
-                    }
-                    .disabled(result.isScanning)
+                    rescanControl
                 }
             } else if result?.isScanning == true {
                 HStack(spacing: 8) {
@@ -302,13 +319,7 @@ struct CategoryDetailView: View {
                         .foregroundColor(.secondary)
                 }
             } else if result != nil {
-                DetailTextButton(
-                    title: "重新扫描",
-                    systemImage: "arrow.clockwise"
-                ) {
-                    Task { await viewModel.scanCategory(category) }
-                }
-                .disabled(result?.isScanning == true)
+                rescanControl
             } else {
                 Text(category.description)
                     .font(.system(size: 11))
@@ -318,13 +329,23 @@ struct CategoryDetailView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.07))
-                .frame(height: 1)
-        }
     }
     
+    @ViewBuilder
+    private var rescanControl: some View {
+        if category == .applicationCache {
+            Menu {
+                Button("增量扫描") { Task { await viewModel.scanCategory(category) } }
+                Button("完整重扫") { Task { await viewModel.scanCategory(category, forceFull: true) } }
+            } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
+                .menuStyle(.borderlessButton).fixedSize().font(.system(size: 12))
+        } else {
+            DetailTextButton(title: "重新扫描", systemImage: "arrow.clockwise") {
+                Task { await viewModel.scanCategory(category) }
+            }
+        }
+    }
+
     // MARK: - 前置页面（未扫描状态）：居中一体主视觉
     private var preScanView: some View {
         VStack(spacing: 0) {
@@ -417,7 +438,7 @@ struct CategoryDetailView: View {
     // MARK: - 文件列表内容
     private var fileListContent: some View {
         VStack(spacing: 0) {
-            if let error = result?.error {
+            if let error = result?.error, error != result?.diagnostics?.summary {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundColor(.orange)
@@ -466,7 +487,7 @@ struct CategoryDetailView: View {
                     .padding(.horizontal, 12)
                     .frame(minWidth: 150, idealWidth: 220, maxWidth: 260)
                     .frame(height: 36)
-                    .background(Theme.surfaceRaised)
+                    .background(Theme.inlineSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -483,7 +504,7 @@ struct CategoryDetailView: View {
                             .frame(width: 36, height: 36)
                     }
                     .buttonStyle(.plain)
-                    .background(Theme.surfaceRaised)
+                    .background(Theme.inlineSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -495,7 +516,7 @@ struct CategoryDetailView: View {
 
                 sortControls
 
-                Text("\(sortedFiles.count) 个\(category.itemUnit)")
+                Text(searchText.isEmpty && ageFilter == nil ? "" : "筛选出 \(sortedFiles.count) 个\(category.itemUnit)")
                     .font(.system(size: 13, design: .rounded))
                     .foregroundColor(.secondary)
                     .monospacedDigit()
@@ -535,6 +556,8 @@ struct CategoryDetailView: View {
                 FileListView(
                     files: sortedFiles,
                     allFiles: result?.items ?? [],
+                    groupsByApplication: category == .browserCache || category == .applicationCache,
+                    applicationGroupSort: sortBy == .size ? .size : (sortBy == .date ? .date : .name),
                     selectedFiles: $selectedFiles,
                     onDelete: { file in
                         viewModel.requestDeleteFile(file, from: category)
@@ -625,7 +648,7 @@ struct CategoryDetailView: View {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(ageFilter == group.bucket
                                       ? AnyShapeStyle(Theme.accentGradientSoft)
-                                      : AnyShapeStyle(Theme.surfaceRaised))
+                                      : AnyShapeStyle(Theme.inlineSurface))
                         )
                     }
                     .buttonStyle(.plain)
@@ -735,8 +758,9 @@ struct CategoryDetailView: View {
 
     private var scanningView: some View {
         ScanningPlaceholderView(
-            title: "正在扫描…",
-            subtitle: "正在分析 \(category.rawValue) 中的文件"
+            title: "正在扫描 \(category.rawValue)",
+            subtitle: "正在读取文件信息",
+            currentPath: result?.diagnostics?.currentPath ?? ""
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -894,7 +918,7 @@ struct DetailTextButton: View {
         if isDestructive {
             return isHovered ? Color.red.opacity(0.12) : Color.red.opacity(0.06)
         }
-        return isHovered ? Theme.surfaceRaised : Color.primary.opacity(0.04)
+        return isHovered ? Theme.inlineSurface : Color.primary.opacity(0.04)
     }
 
     private var borderColor: Color {
@@ -922,9 +946,6 @@ private struct MetricPill: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.surfaceRaised)
-        )
+        .gradientGlass(cornerRadius: 10)
     }
 }

@@ -4,6 +4,10 @@ import SwiftUI
 struct FileListView: View {
     let files: [FileItem]
     let allFiles: [FileItem]
+    var groupsByApplication: Bool = false
+    var applicationGroupSort: ApplicationGroupSort = .size
+
+    enum ApplicationGroupSort { case size, date, name }
     let onDelete: (FileItem) -> Void
     let onDeleteBatch: (([FileItem]) -> Void)?
     let deleteTitle: String
@@ -13,10 +17,14 @@ struct FileListView: View {
     @Binding var selectedFiles: Set<FileItem.ID>
     @State private var hoveredFileID: FileItem.ID?
     @State private var selectionAnchorID: FileItem.ID?
+    @State private var ruleExplanationFile: FileItem?
+    @State private var expandedApplicationIDs = Set<String>()
     
     init(
         files: [FileItem],
         allFiles: [FileItem],
+        groupsByApplication: Bool = false,
+        applicationGroupSort: ApplicationGroupSort = .size,
         selectedFiles: Binding<Set<FileItem.ID>> = .constant([]),
         onDelete: @escaping (FileItem) -> Void,
         onDeleteBatch: (([FileItem]) -> Void)? = nil,
@@ -26,6 +34,8 @@ struct FileListView: View {
     ) {
         self.files = files
         self.allFiles = allFiles
+        self.groupsByApplication = groupsByApplication
+        self.applicationGroupSort = applicationGroupSort
         self._selectedFiles = selectedFiles
         self.onDelete = onDelete
         self.onDeleteBatch = onDeleteBatch
@@ -49,46 +59,89 @@ struct FileListView: View {
     
     var body: some View {
         let maxSize = files.map(\.size).max() ?? 0
-
         return ScrollView {
-            LazyVStack(spacing: 6) {
-                ForEach(files) { file in
-                    FileCardRow(
-                        file: file,
-                        isSelected: selectedFiles.contains(file.id),
-                        isHovered: hoveredFileID == file.id,
-                        sizeRatio: maxSize > 0 ? Double(file.size) / Double(maxSize) : 0,
-                        onToggleSelection: {
-                            withAnimation(Theme.springSnappy) {
-                                toggleSelection(for: file)
-                            }
-                        },
-                        onSelect: {
-                            withAnimation(Theme.springSnappy) {
-                                if NSEvent.modifierFlags.contains(.shift) {
-                                    selectRange(to: file)
-                                } else {
-                                    toggleSelection(for: file)
+            LazyVStack(spacing: groupsByApplication ? 12 : 6) {
+                if groupsByApplication {
+                    ForEach(applicationGroups) { group in
+                        ApplicationCacheGroupHeader(
+                            application: group.application,
+                            files: group.files,
+                            selectedFiles: $selectedFiles,
+                            isExpanded: Binding(
+                                get: { expandedApplicationIDs.contains(group.id) },
+                                set: { expanded in
+                                    if expanded { expandedApplicationIDs.insert(group.id) }
+                                    else { expandedApplicationIDs.remove(group.id) }
                                 }
+                            )
+                        )
+                        if expandedApplicationIDs.contains(group.id) {
+                            ForEach(group.files) { file in
+                                fileRow(file, maxSize: maxSize)
+                                    .padding(.leading, 32)
                             }
-                        },
-                        onOpen: { onOpen(file) },
-                        onReveal: { onReveal(file) },
-                        deleteTitle: deleteTitle,
-                        onDelete: { onDelete(file) }
-                    )
-                    .contextMenu {
-                        contextMenuContent(for: file)
-                    }
-                    .onHover { isHovered in
-                        withAnimation(Theme.ease) {
-                            hoveredFileID = isHovered ? file.id : nil
                         }
                     }
+                } else {
+                    ForEach(files) { file in fileRow(file, maxSize: maxSize) }
                 }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
+        }
+    }
+
+    private struct ApplicationGroup: Identifiable {
+        let application: CacheApplication?
+        var files: [FileItem]
+        var id: String { application?.id ?? "other" }
+        var name: String { application?.name ?? "其他应用缓存" }
+        var size: Int64 { files.reduce(0) { $0 + $1.size } }
+        var date: Date { files.compactMap(\.modificationDate).max() ?? .distantPast }
+    }
+
+    private var applicationGroups: [ApplicationGroup] {
+        Dictionary(grouping: files, by: \.cacheApplication)
+            .map { ApplicationGroup(application: $0.key, files: $0.value) }
+            .sorted { lhs, rhs in
+                switch applicationGroupSort {
+                case .size:
+                    if lhs.size != rhs.size { return lhs.size > rhs.size }
+                case .date:
+                    if lhs.date != rhs.date { return lhs.date > rhs.date }
+                case .name: break
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    private func fileRow(_ file: FileItem, maxSize: Int64) -> some View {
+        return FileCardRow(
+            file: file,
+            isSelected: selectedFiles.contains(file.id),
+            isHovered: hoveredFileID == file.id,
+            sizeRatio: maxSize > 0 ? Double(file.size) / Double(maxSize) : 0,
+            onToggleSelection: {
+                withAnimation(Theme.springSnappy) { toggleSelection(for: file) }
+            },
+            onSelect: {
+                withAnimation(Theme.springSnappy) {
+                    if NSEvent.modifierFlags.contains(.shift) { selectRange(to: file) }
+                    else { toggleSelection(for: file) }
+                }
+            },
+            onOpen: { onOpen(file) },
+            onReveal: { onReveal(file) },
+            deleteTitle: deleteTitle,
+            onDelete: { onDelete(file) },
+            onExplainRule: { ruleExplanationFile = file }
+        )
+        .contextMenu { contextMenuContent(for: file) }
+        .sheet(isPresented: Binding(get: { ruleExplanationFile?.id == file.id }, set: { if !$0 { ruleExplanationFile = nil } })) {
+            CacheRuleExplanationView(file: file)
+        }
+        .onHover { isHovered in
+            withAnimation(Theme.ease) { hoveredFileID = isHovered ? file.id : nil }
         }
     }
 
@@ -103,16 +156,19 @@ struct FileListView: View {
     
     /// 选择范围
     private func selectRange(to targetFile: FileItem) {
-        guard let anchorID = selectionAnchorID ?? files.first(where: { selectedFiles.contains($0.id) })?.id,
-              let firstIndex = files.firstIndex(where: { $0.id == anchorID }),
-              let targetIndex = files.firstIndex(where: { $0.id == targetFile.id }) else {
+        let visibleFiles = groupsByApplication
+            ? applicationGroups.filter { expandedApplicationIDs.contains($0.id) }.flatMap(\.files)
+            : files
+        guard let anchorID = selectionAnchorID ?? visibleFiles.first(where: { selectedFiles.contains($0.id) })?.id,
+              let firstIndex = visibleFiles.firstIndex(where: { $0.id == anchorID }),
+              let targetIndex = visibleFiles.firstIndex(where: { $0.id == targetFile.id }) else {
             selectedFiles.insert(targetFile.id)
             selectionAnchorID = targetFile.id
             return
         }
         
         let range = min(firstIndex, targetIndex)...max(firstIndex, targetIndex)
-        let idsInRange = files[range].map(\.id)
+        let idsInRange = visibleFiles[range].map(\.id)
         selectedFiles.formUnion(idsInRange)
     }
     
@@ -123,6 +179,11 @@ struct FileListView: View {
         let targets = contextMenuTargets(for: file)
         let count = targets.count
         
+        if count == 1, file.cacheRuleMatch != nil {
+            Button("查看缓存识别依据") { ruleExplanationFile = file }
+            Divider()
+        }
+
         // 打开（单选）
         if count == 1 {
             Button { onOpen(file) } label: {
@@ -213,6 +274,7 @@ struct FileCardRow: View {
     let onReveal: () -> Void
     let deleteTitle: String
     let onDelete: () -> Void
+    let onExplainRule: () -> Void
 
     private var showsActions: Bool { isHovered || isSelected }
 
@@ -254,6 +316,15 @@ struct FileCardRow: View {
                         .truncationMode(.middle)
                         .help(file.path)
 
+                    if file.cacheApplication != nil {
+                        Text((file.path as NSString).abbreviatingWithTildeInPath)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(file.path)
+                    }
+
                     ProportionBar(
                         progress: sizeRatio,
                         gradient: sizeGradient,
@@ -276,6 +347,14 @@ struct FileCardRow: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2, perform: onOpen)
             .onTapGesture(count: 1, perform: onSelect)
+
+            if let match = file.cacheRuleMatch {
+                Button(action: onExplainRule) {
+                    Label("识别依据 · \(match.risk.displayName)", systemImage: "info.circle")
+                        .font(.system(size: 12))
+                }.buttonStyle(.link)
+                    .accessibilityLabel("查看 \(file.name) 的缓存识别依据")
+            }
 
             // 右侧：定宽列，保证整列对齐
             HStack(spacing: 8) {

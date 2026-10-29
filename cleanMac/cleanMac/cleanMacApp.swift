@@ -11,6 +11,7 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
         BatteryAlertMonitor.shared.start()
         ScheduledScanService.shared.start()
         NetworkSpeedStatusItem.shared.start()
+        ResourceAlertPresenter.shared.start()
     }
 }
 
@@ -28,6 +29,7 @@ private struct MenuBarWindowRouter: View {
                     .accessibilityLabel("设备电量低，请充电")
             }
         }
+            .background(ResourceStatusBarAnchor())
             .help(batteryAlerts.hasBatteryWarning ? "有设备电量低，请充电" : "cleanMac")
             .task { openPendingWindow() }
             .onChange(of: appActions.mainWindowRequest) { _ in openPendingWindow() }

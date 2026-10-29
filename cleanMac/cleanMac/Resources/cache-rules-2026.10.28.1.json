@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.10.28.1",
+  "title": "应用专用缓存规则",
+  "rules": [
+    {
+      "id": "electron-session-blobs",
+      "title": "Electron 会话临时 Blob",
+      "bundleIdentifiers": ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.tinyspeck.slackmacgap", "com.hnc.Discord", "md.obsidian"],
+      "rootKinds": ["applicationSupport"],
+      "relativePaths": ["blob_storage"],
+      "reason": "Chromium 将会话 Blob 临时文件写入配置目录下的 blob_storage，并在新会话清理旧会话目录。仅匹配列出的软件及其精确子目录。",
+      "impact": "先退出所属软件再清理；正在使用的 Blob 可能影响未完成的上传或页面任务。不会清理 Local Storage、IndexedDB 或 Cookie。",
+      "risk": "sensitive",
+      "sources": ["https://github.com/chromium/chromium/blob/main/content/browser/blob_storage/chrome_blob_storage_context.cc", "https://www.electronjs.org/docs/latest/api/app"]
+    },
+    {
+      "id": "electron-rendering-caches",
+      "title": "Electron 渲染与代码缓存",
+      "bundleIdentifiers": ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.tinyspeck.slackmacgap", "com.hnc.Discord", "md.obsidian"],
+      "rootKinds": ["applicationSupport"],
+      "relativePaths": ["GPUCache", "Code Cache"],
+      "reason": "匹配所属软件数据目录中明确命名的 Chromium GPU 缓存和编译代码缓存，并显示识别依据。",
+      "impact": "建议退出所属软件后清理；下次启动可能重新生成缓存。",
+      "risk": "caution",
+      "sources": ["https://www.electronjs.org/docs/latest/api/app"]
+    }
+  ]
+}

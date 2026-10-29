@@ -47,7 +47,9 @@ enum DeleteDryRun {
         var allowed: [FileItem] = []
         var blocked: [(FileItem, String)] = []
         for item in items {
-            let decision = validate(path: item.path, context: context)
+            let pathDecision = validate(path: item.path, context: context)
+            let decision = CacheRuleMatcher.isWithinRecordedRoot(item) ? pathDecision
+                : Decision(path: item.path, allowed: false, reason: "规则缓存路径已变化或包含符号链接，请重新扫描。")
             if decision.allowed {
                 allowed.append(item)
             } else {

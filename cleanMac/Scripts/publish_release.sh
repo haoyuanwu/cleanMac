@@ -77,10 +77,12 @@ print(f'版本 {version}，构建号 {build}')
 PY
   bash -n "$APP_ROOT/Scripts/make_dmg.sh" "$APP_ROOT/Scripts/publish_release.sh"
   git diff --check
+  echo '==> 运行核心模型和文件系统回归测试'
+  "$APP_ROOT/Scripts/test_p0.sh"
   echo '==> 构建并自动校验 Apple Silicon 和 Intel 安装包'
   BUILD_ARCH=all "$APP_ROOT/Scripts/make_dmg.sh"
   # 只暂存应用源码、发布脚本、版本和说明；不包含 Xcode 用户状态及 build 产物。
-  git add -- "$APP_ROOT/cleanMac" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
+  git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
   git add -f -- "$NOTES"
   git diff --cached --check
   echo '==> 创建中文提交和版本标签'
@@ -90,7 +92,7 @@ if [[ "$MODE" != --wait-only ]]; then
   if [[ "$MODE" = --resume ]]; then
     [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支继续发布' >&2; exit 1; }
     git diff --cached --quiet || { echo '错误：请先处理暂存区改动' >&2; exit 1; }
-    git diff --quiet -- "$APP_ROOT/cleanMac" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github" "$NOTES" || {
+    git diff --quiet -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github" "$NOTES" || {
       echo '错误：源码或发布文件发生变化，请先提交后再继续推送' >&2; exit 1;
     }
     git cat-file -e "HEAD:docs/releases/$TAG.md"
