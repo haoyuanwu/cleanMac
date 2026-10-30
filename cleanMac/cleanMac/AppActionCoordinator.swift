@@ -18,6 +18,7 @@ final class AppActionCoordinator: ObservableObject {
     private var hasPendingMainWindow = false
     private weak var mainWindow: NSWindow?
     private var mainWindowCloseObserver: NSObjectProtocol?
+    private var windowOpener: (() -> Void)?
 
     private init() {}
 
@@ -98,9 +99,15 @@ final class AppActionCoordinator: ObservableObject {
         return true
     }
 
+    func registerWindowOpener(_ opener: @escaping () -> Void) {
+        windowOpener = opener
+        if consumeMainWindowRequest() { showMainWindow(openWindow: opener) }
+    }
+
     func requestMainWindow() {
         hasPendingMainWindow = true
         mainWindowRequest += 1
+        if let windowOpener, consumeMainWindowRequest() { showMainWindow(openWindow: windowOpener) }
     }
 
     func consumeMainWindowRequest() -> Bool {

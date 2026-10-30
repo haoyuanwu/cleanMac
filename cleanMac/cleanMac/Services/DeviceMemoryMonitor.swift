@@ -6,6 +6,10 @@ struct DeviceMemorySample: Identifiable, Sendable {
     let id = Date()
     let usedBytes: UInt64
     let totalBytes: UInt64
+    var compressedBytes: UInt64 = 0
+    var wiredBytes: UInt64 = 0
+    var swapBytes: UInt64? = nil
+    var pressure: Int32? = nil
 }
 
 enum DeviceMemoryReader {
@@ -27,9 +31,17 @@ enum DeviceMemoryReader {
         let usedPages = UInt64(statistics.active_count)
             + UInt64(statistics.wire_count)
             + UInt64(statistics.compressor_page_count)
+        var swap = xsw_usage(), swapSize = MemoryLayout<xsw_usage>.size
+        let swapOK = sysctlbyname("vm.swapusage", &swap, &swapSize, nil, 0) == 0
+        var pressure: Int32 = 0, pressureSize = MemoryLayout<Int32>.size
+        let pressureOK = sysctlbyname("kern.memorystatus_vm_pressure_level", &pressure, &pressureSize, nil, 0) == 0
         return DeviceMemorySample(
             usedBytes: min(total, usedPages * UInt64(pageSize)),
-            totalBytes: total
+            totalBytes: total,
+            compressedBytes: UInt64(statistics.compressor_page_count) * UInt64(pageSize),
+            wiredBytes: UInt64(statistics.wire_count) * UInt64(pageSize),
+            swapBytes: swapOK ? swap.xsu_used : nil,
+            pressure: pressureOK && [1, 2, 4].contains(pressure) ? pressure : nil
         )
     }
 }

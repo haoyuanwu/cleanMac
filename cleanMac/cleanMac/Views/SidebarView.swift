@@ -12,7 +12,13 @@ struct SidebarView: View {
 
     enum SidebarTab: String, CaseIterable, Hashable, Identifiable {
         case dashboard = "一键清理"
-        case deviceInfo = "设备信息"
+        case deviceInfo = "系统档案"
+        case applicationUsage = "应用占用"
+        case deviceMemory = "内存状态"
+        case deviceCPU = "CPU 与运行状态"
+        case deviceConnections = "网络与连接"
+        case deviceBattery = "电池与电源"
+        case deviceStorage = "存储空间"
         case category = "分类"
         case diskMap = "磁盘地图"
         case duplicates = "重复文件"
@@ -39,8 +45,12 @@ struct SidebarView: View {
                         navigationButton(group, shortcut: index + 2)
                     }
                 }
+                // 圆点和焦点描边可超出 48pt 按钮；滚动裁切边界使用完整栏宽。
+                .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
             }
+            .frame(width: 80)
             Spacer(minLength: 0)
             Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"))
                 .font(.system(size: 9, weight: .medium, design: .rounded)).foregroundStyle(.secondary)

@@ -36,6 +36,7 @@ private struct MenuBarPopupWindowReader: NSViewRepresentable {
 
 /// 菜单栏中的设备与空间速览。
 struct MenuBarStatusView: View {
+    var onOpenMainWindow: (() -> Void)? = nil
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @State private var popupWindowHolder = MenuBarPopupWindowHolder()
@@ -414,6 +415,7 @@ struct MenuBarStatusView: View {
     }
 
     private func openMainWindow() {
+        if let onOpenMainWindow { onOpenMainWindow(); return }
         dismiss()
         popupWindowHolder.window?.orderOut(nil)
         AppActionCoordinator.shared.showMainWindow { openWindow(id: "main") }

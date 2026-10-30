@@ -343,10 +343,7 @@ struct DiskMapView: View {
             .padding(16)
             ZStack {
                 if isCurrentLoading {
-                    VStack(spacing: 10) {
-                        ProgressView()
-                        Text("正在分析目录…").font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
+                    ScanningPlaceholderView(title: "正在分析目录…", subtitle: "正在读取目录与文件占用", animationHeight: 210)
                 } else if node.children.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "folder").font(.system(size: 32)).foregroundStyle(.secondary)

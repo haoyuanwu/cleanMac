@@ -51,6 +51,7 @@ final class DeviceStatusMonitor: ObservableObject {
                 }.value
                 if refreshAgain { continue }
                 snapshot = next
+                BatteryHistoryMonitor.shared.record(next)
             } while refreshAgain
         }
         refreshTask = task

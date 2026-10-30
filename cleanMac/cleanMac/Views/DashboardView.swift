@@ -14,6 +14,20 @@ struct DashboardView: View {
     let openInsights: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var scanning: Bool { viewModel.isScanning || isDeepSearching }
+    private var heroPhase: DashboardHeroPhase {
+        if scanning { return .scanning }
+        if viewModel.isCleaning { return .cleaning }
+        return scanFinished ? .finished : .ready
+    }
+    private var phaseMotion: Animation? {
+        reduceMotion ? nil : .spring(response: 0.52, dampingFraction: 0.9)
+    }
+    private var stateTransition: AnyTransition {
+        reduceMotion ? .opacity : .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 6)),
+            removal: .opacity.animation(.easeOut(duration: 0.12)))
+    }
     private var busy: Bool { viewModel.isScanning || isDeepSearching || viewModel.isCleaning }
     private var scanFinished: Bool {
         !busy && viewModel.overviewScanIsComplete && ScanCategory.overviewScanCategories.allSatisfy {
@@ -73,7 +87,7 @@ struct DashboardView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         Spacer(minLength: 8)
-                        hero
+                        hero(viewport: viewport.size)
                         secondaryActions
                         Spacer(minLength: 8)
                     }
@@ -83,26 +97,32 @@ struct DashboardView: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: scanFinished)
+        .animation(phaseMotion, value: heroPhase)
     }
 
-    private var hero: some View {
+    private var activeScanPath: String? {
+        ScanCategory.allCases.compactMap { category -> String? in
+            guard let result = viewModel.scanResults[category], result.isScanning,
+                  let path = result.diagnostics?.currentPath, !path.isEmpty else { return nil }
+            return path
+        }.first
+    }
+
+    private func hero(viewport: CGSize) -> some View {
         VStack(spacing: scanFinished ? 12 : 18) {
-            if viewModel.isScanning || isDeepSearching {
-                ScanningFilesAnimation().frame(width: 240, height: 220)
-            } else {
-                ZStack {
-                    Circle().fill(Theme.accentGradientSoft).frame(width: scanFinished ? 100 : 156, height: scanFinished ? 100 : 156)
-                    Circle().fill(Theme.accentGradient).frame(width: scanFinished ? 76 : 112, height: scanFinished ? 76 : 112)
-                        .shadow(color: Color.indigo.opacity(0.22), radius: 24, y: 12)
-                    Image(systemName: busy ? "sparkle.magnifyingglass" : scanFinished ? "checkmark.shield" : "sparkles")
-                        .font(.system(size: scanFinished ? 34 : 44, weight: .medium)).foregroundStyle(.white)
-                }.accessibilityHidden(true)
-            }
+            DashboardHeroArtwork(phase: heroPhase, availableSize: viewport)
             VStack(spacing: 9) {
                 Text(headline).font(.system(size: 27, weight: .bold, design: .rounded))
+                    .id(headline).transition(stateTransition)
                 Text(detail).font(.system(size: 13)).foregroundStyle(Theme.navigationSecondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 460)
+                    .id(heroPhase).transition(.opacity)
+            }
+            if scanning {
+                Text(activeScanPath ?? "正在准备扫描路径…").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 500, minHeight: 18)
+                    .help(activeScanPath ?? "正在准备扫描路径…")
+                    .transition(stateTransition)
             }
             if scanFinished && hasRecommendation {
                 VStack(spacing: 4) {
@@ -111,30 +131,18 @@ struct DashboardView: View {
                     Text("推荐项目的逻辑大小").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
                 }
             }
-            if viewModel.isScanning || isDeepSearching {
-                VStack(spacing: 12) {
-                    ProgressView(value: min(1, max(0, progress)))
-                        .tint(.indigo).frame(width: 240)
-                        .accessibilityLabel("扫描进度")
-                    Text("\(Int(min(1, max(0, progress)) * 100))%")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
-                    Button("取消扫描") {
-                        if isDeepSearching { onCancelDeepSearch() } else { viewModel.cancelScanAll() }
-                    }.buttonStyle(.bordered)
-                }
-            } else if viewModel.isCleaning {
-                ProgressView("正在清理…")
+            if viewModel.isCleaning {
+                ProgressView("正在清理…").transition(.opacity)
             } else {
-                Button {
-                    if scanFinished { viewModel.requestSmartClean() } else { startScan() }
-                } label: {
-                    Label(scanFinished ? "智能一键清理" : "开始清理", systemImage: "sparkles")
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(minWidth: 220).padding(.horizontal, 22).padding(.vertical, 16)
-                }
-                .buttonStyle(GradientButtonStyleCompact())
-                .disabled(scanFinished && !hasRecommendation)
-                .help(scanFinished ? "核对推荐项目并确认清理" : "先扫描可清理项目，扫描后确认清理")
+                DashboardScanControls(scanning: scanning, progress: progress,
+                    title: scanFinished ? "智能一键清理" : "开始清理",
+                    disabled: scanFinished && !hasRecommendation,
+                    onStart: {
+                        if scanFinished { viewModel.requestSmartClean() } else { startScan() }
+                    }, onCancel: {
+                        if isDeepSearching { onCancelDeepSearch() } else { viewModel.cancelScanAll() }
+                    })
+                    .help(scanning ? "可随时取消扫描" : scanFinished ? "核对推荐项目并确认清理" : "先扫描可清理项目，扫描后确认清理")
             }
             if scanFinished {
                 Text(hasReadIssues ? "部分位置未能完整读取，请在确认前核对推荐项目。" : "清理前可核对项目，回收后可在清理记录中恢复。")
@@ -161,6 +169,7 @@ struct DashboardView: View {
                     }.padding(15).frame(maxWidth: .infinity)
                         .gradientGlass(cornerRadius: 16)
                 }
+                .transition(stateTransition)
                 .buttonStyle(WorkspacePressStyle())
                 .disabled(duplicateSession.isLoading || xcodeViewModel.isScanning)
             }

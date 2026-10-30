@@ -11,7 +11,7 @@ P0_LIBRARY_DIR="$P0_PLATFORM_DIR/usr/lib"
 
 swiftc -emit-library -emit-module -enable-testing -module-name cleanMac \
   -emit-module-path "$P0_TEST_DIR/cleanMac.swiftmodule" -o "$P0_TEST_DIR/libcleanMac.dylib" \
-  cleanMac/Models/{FileItem,FileStorageMeasurement,CacheRuleCatalog,CacheApplication,BrowserCacheApplication,ScanCategory,ScanDiagnostics,ScanResult,LocalInspection,ApplicationResourceUsage}.swift \
+  cleanMac/Models/{FileItem,FileStorageMeasurement,CacheRuleCatalog,CacheApplication,BrowserCacheApplication,ScanCategory,ScanDiagnostics,ScanResult,LocalInspection,ApplicationResourceUsage,DeviceTelemetry}.swift \
   cleanMac/Helpers/{FileHelper,FileSizeFormatter}.swift \
   cleanMac/Services/{ScanFileAccess,ScanPathOwnership,CleaningHistoryStore,CleanService,PrivilegedTrashService,DeleteDryRun,ApplicationNameResolver,ApplicationCacheScanner,AppLeftoverScanner,ApplicationUninstallPreflight,CacheRuleStore,CacheScanIgnoreStore,DiskBubbleLayout,DiskMapSelectionPolicy,SafetyWhitelist,UserWhitelist,AppLog,SmartCleanService,StartupInspectionService,BrowserPrivacyService,ExtensionInventoryService,CacheEventMonitor,CacheScanIndex,LocalSpaceInsights,DuplicateFileScanner}.swift
 
@@ -27,8 +27,9 @@ suite.addTest(CleaningHistoryTests.defaultTestSuite)
 suite.addTest(CacheRuleTests.defaultTestSuite)
 suite.addTest(AppUninstallAssociationTests.defaultTestSuite)
 suite.addTest(RemainingPlanTests.defaultTestSuite)
+suite.addTest(DeviceTelemetryTests.defaultTestSuite)
 suite.run()
-guard let result = suite.testRun, result.executionCount == 118, result.totalFailureCount == 0 else { exit(1) }
+guard let result = suite.testRun, result.executionCount == 135, result.totalFailureCount == 0 else { exit(1) }
 SWIFT
 
 swiftc -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \
@@ -36,6 +37,6 @@ swiftc -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_
   -Xlinker -rpath -Xlinker "$P0_TEST_DIR" \
   -Xlinker -rpath -Xlinker "$P0_FRAMEWORK_DIR" \
   -Xlinker -rpath -Xlinker "$P0_LIBRARY_DIR" \
-  cleanMacTests/{ScanDiagnosticsTests,ApplicationCacheScannerTests,DiskMapSelectionPolicyTests,DiskBubbleLayoutTests,StorageAccountingTests,CleaningHistoryTests,CacheRuleTests,AppUninstallAssociationTests,RemainingPlanTests}.swift \
+  cleanMacTests/{ScanDiagnosticsTests,ApplicationCacheScannerTests,DiskMapSelectionPolicyTests,DiskBubbleLayoutTests,StorageAccountingTests,CleaningHistoryTests,CacheRuleTests,AppUninstallAssociationTests,RemainingPlanTests,DeviceTelemetryTests}.swift \
   "$P0_TEST_DIR/main.swift" -o "$P0_TEST_DIR/tests"
 "$P0_TEST_DIR/tests"

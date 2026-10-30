@@ -2,83 +2,95 @@ import SwiftUI
 import AppKit
 import CoreLocation
 
+enum DeviceInformationSection {
+    case system, memory, connections, battery, storage
+    var destination: WorkspaceDestination {
+        switch self {
+        case .system: return .page(.deviceInfo)
+        case .memory: return .page(.deviceMemory)
+        case .connections: return .page(.deviceConnections)
+        case .battery: return .page(.deviceBattery)
+        case .storage: return .page(.deviceStorage)
+        }
+    }
+}
+
+/// 各设备功能的详情页，共享同一份设备快照，不重复创建采集任务。
 struct DeviceInformationView: View {
     @ObservedObject var viewModel: DeviceInformationViewModel
+    let section: DeviceInformationSection
+    var onOpen: (WorkspaceDestination) -> Void = { _ in }
     @State private var copiedFieldID: String?
-    @State private var showSystemDetails = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-
-                if let snapshot = viewModel.snapshot {
-                    overviewCard(snapshot)
-                }
-                ApplicationResourceCard()
-                if let snapshot = viewModel.snapshot {
-                    categoryColumns(snapshot)
-
+            VStack(alignment: .leading, spacing: 24) {
+                DeviceFeatureHeader(destination: section.destination,
+                    isRefreshing: section != .memory && viewModel.isLoading,
+                    onRefresh: section == .memory ? nil : { viewModel.refresh() })
+                sectionContent
+                if section != .memory, let snapshot = viewModel.snapshot {
                     Text("最近更新：\(snapshot.capturedAt.formatted(date: .omitted, time: .standard))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ProgressView("正在读取设备信息…")
-                        .frame(maxWidth: .infinity, minHeight: 320)
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 1080)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 32)
+            .frame(maxWidth: 1080).frame(maxWidth: .infinity)
         }
         .navigationTitle("")
-
         .onAppear {
-            viewModel.updateLocationStatus()
+            if section == .memory { DeviceMemoryMonitor.shared.start(); return }
+            if section == .connections { viewModel.updateLocationStatus() }
             viewModel.loadIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            viewModel.updateLocationStatus()
+            if section == .connections { viewModel.updateLocationStatus() }
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 16) {
-            Image("SidebarInfo")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundColor(.white)
-                .frame(width: 23, height: 23)
-                .frame(width: 48, height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                )
-                .elevatedShadow()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("设备信息")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("硬件、软件、电池与连接状态")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+    @ViewBuilder private var sectionContent: some View {
+        switch section {
+        case .memory:
+            dashboardBand { DeviceMemoryTrendCard(embedded: true) }
+            MemoryPressurePanel()
+        case .connections:
+            dashboardBand {
+                NetworkSpeedCard(embedded: true,
+                    downloadedTotal: viewModel.snapshot.map { value(for: "累计下载", in: $0.network) },
+                    uploadedTotal: viewModel.snapshot.map { value(for: "累计上传", in: $0.network) })
             }
-
-            Spacer()
-
-            if viewModel.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("正在刷新设备信息")
-            }
-            DetailTextButton(title: "刷新", systemImage: "arrow.clockwise") {
-                viewModel.refresh()
-            }
-            .disabled(viewModel.isLoading)
+            if let snapshot = viewModel.snapshot {
+                dashboardBand { wifiCard(snapshot) }
+                dashboardBand { bluetoothCard(snapshot) }
+            } else { loadingState }
+            NetworkDiagnosticPanel()
+        case .system:
+            if let snapshot = viewModel.snapshot {
+                overviewCard(snapshot)
+                dashboardBand {
+                    dashboardPair {
+                        infoCard("硬件信息", icon: "desktopcomputer", tint: .blue, fields: snapshot.device)
+                    } right: {
+                        infoCard("软件信息", icon: "app.badge", tint: .purple, fields: snapshot.software)
+                    }
+                }
+                SystemExtrasPanel(snapshot: snapshot)
+            } else { loadingState }
+        case .battery:
+            if let snapshot = viewModel.snapshot { dashboardBand { batteryCard(snapshot) } }
+            else { loadingState }
+            BatteryHistoryPanel()
+        case .storage:
+            if let snapshot = viewModel.snapshot { dashboardBand { storageCard(snapshot) } }
+            else { loadingState }
+            StorageActivityPanel(onOpen: onOpen)
         }
+    }
+
+    private var loadingState: some View {
+        ProgressView("正在读取\(section.destination.title)…")
+            .frame(maxWidth: .infinity, minHeight: 220)
+            .gradientGlass(cornerRadius: 18)
     }
 
     private func overviewCard(_ snapshot: DeviceInfoSnapshot) -> some View {
@@ -97,7 +109,7 @@ struct DeviceInformationView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Label("实时监测", systemImage: "waveform.path")
+                Label("设备概况", systemImage: "desktopcomputer")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -122,64 +134,6 @@ struct DeviceInformationView: View {
             RoundedRectangle(cornerRadius: 1).fill(Theme.accentGradient).frame(width: 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func categoryColumns(_ snapshot: DeviceInfoSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 26) {
-            sectionTitle("实时性能", subtitle: "最近一分钟 · 随设备状态更新")
-            dashboardBand {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 24) {
-                        networkSpeedCard(snapshot)
-                            .frame(maxWidth: .infinity)
-                        Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1, height: PerformanceMonitorLayout.height)
-                        DeviceMemoryTrendCard(embedded: true).frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                    .frame(minWidth: 620)
-                    VStack(spacing: 24) {
-                        networkSpeedCard(snapshot)
-                        Divider()
-                        DeviceMemoryTrendCard(embedded: true)
-                    }
-                }
-            }
-            sectionTitle("能量与空间", subtitle: "电池状态与磁盘容量")
-            dashboardBand {
-                dashboardPair {
-                    batteryCard(snapshot)
-                } right: {
-                    storageCard(snapshot)
-                }
-            }
-            sectionTitle("连接状态", subtitle: "无线网络与已连接外设")
-            dashboardBand {
-                dashboardPair {
-                    wifiCard(snapshot)
-                } right: {
-                    bluetoothCard(snapshot)
-                }
-            }
-            DisclosureGroup(isExpanded: $showSystemDetails) {
-                dashboardBand {
-                    dashboardPair {
-                        infoCard("硬件信息", icon: "desktopcomputer", tint: .blue, fields: snapshot.device)
-                    } right: {
-                        infoCard("软件信息", icon: "app.badge", tint: .purple, fields: snapshot.software)
-                    }
-                }
-                .padding(.top, 12)
-            } label: {
-                sectionTitle("系统档案", subtitle: "查看硬件与软件明细")
-            }
-        }
-    }
-
-    private func sectionTitle(_ title: String, subtitle: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.system(size: 15, weight: .bold))
-            Spacer(minLength: 8)
-            Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-        }
     }
 
     private func dashboardBand<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -238,14 +192,6 @@ struct DeviceInformationView: View {
             fieldList(snapshot.storage, section: "存储")
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private func networkSpeedCard(_ snapshot: DeviceInfoSnapshot) -> some View {
-        NetworkSpeedCard(
-            embedded: true,
-            downloadedTotal: value(for: "累计下载", in: snapshot.network),
-            uploadedTotal: value(for: "累计上传", in: snapshot.network)
-        )
     }
 
     private func wifiCard(_ snapshot: DeviceInfoSnapshot) -> some View {
@@ -448,4 +394,35 @@ struct DeviceInformationView: View {
         fields.first(where: { $0.label == label })?.value ?? "未提供"
     }
 
+}
+
+/// 设备功能沿用模块详情页的标题、色彩和刷新反馈。
+struct DeviceFeatureHeader: View {
+    let destination: WorkspaceDestination
+    let isRefreshing: Bool
+    var onRefresh: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: destination.symbol)
+                .font(.system(size: 23, weight: .medium))
+                .foregroundStyle(destination.color)
+                .frame(width: 48, height: 48)
+                .background(destination.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(destination.title).font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(destination.subtitle).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+            }
+            Spacer(minLength: 12)
+            if isRefreshing {
+                ProgressView().controlSize(.small).accessibilityLabel("正在刷新\(destination.title)")
+            }
+            if let onRefresh {
+                DetailTextButton(title: "刷新", systemImage: "arrow.clockwise", action: onRefresh)
+                    .disabled(isRefreshing)
+                    .accessibilityLabel("刷新\(destination.title)")
+            }
+        }
+    }
 }

@@ -6,6 +6,7 @@ struct WorkspaceCardsView: View {
     let namespace: Namespace.ID
     let onOpen: (WorkspaceDestination) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var deviceObserver = UUID()
 
     var body: some View {
         ScrollView {
@@ -43,7 +44,7 @@ struct WorkspaceCardsView: View {
                 }
                 HStack(spacing: 8) {
                     Image(systemName: "cursorarrow.rays")
-                    Text("选择功能卡片查看详情，扫描结果会在各页面间保留。")
+                    Text(group == .device ? "选择一项查看详情，实时监测与设备档案分别呈现。" : "选择功能卡片查看详情，扫描结果会在各页面间保留。")
                 }
                 .font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary)
             }
@@ -51,7 +52,17 @@ struct WorkspaceCardsView: View {
             .frame(maxWidth: 1120, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-
+        .onAppear {
+            if group == .device {
+                DeviceTelemetryMonitor.shared.retain(deviceObserver)
+                HighResourceMonitor.shared.retainOverview(deviceObserver)
+                DeviceStatusMonitor.shared.start()
+            }
+        }
+        .onDisappear {
+            DeviceTelemetryMonitor.shared.release(deviceObserver)
+            HighResourceMonitor.shared.releaseOverview(deviceObserver)
+        }
     }
 
     private func result(for destination: WorkspaceDestination) -> ScanResult? {
@@ -100,7 +111,9 @@ private struct WorkspaceFeatureCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Rectangle().fill(Theme.hairline).frame(height: 1)
                 HStack(spacing: 8) {
-                    if result?.isScanning == true {
+                    if destination.group == .device {
+                        DeviceFeatureSummary(destination: destination)
+                    } else if result?.isScanning == true {
                         ProgressView().controlSize(.small)
                         Text("正在扫描…")
                     } else if let result {

@@ -171,6 +171,10 @@ enum DeviceInformationService {
         ]
 
         fields.append(contentsOf: details)
+        if isAC, let adapter = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any],
+           let watts = adapter[kIOPSPowerAdapterWattsKey] as? NSNumber, watts.doubleValue > 0 {
+            fields.append(.init(label: "适配器额定功率", value: "\(watts.intValue) W"))
+        }
 
         let timeKey = isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
         if isCharging || !isAC {

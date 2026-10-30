@@ -15,29 +15,14 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private struct MenuBarWindowRouter: View {
+/// 捕获主场景的 openWindow 动作，供原生状态栏在主窗口关闭后重新打开。
+private struct MainWindowRequestRouter: View {
     @Environment(\.openWindow) private var openWindow
-    @ObservedObject private var appActions = AppActionCoordinator.shared
-    @ObservedObject private var batteryAlerts = BatteryAlertMonitor.shared
-
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "internaldrive.fill")
-            if batteryAlerts.hasBatteryWarning {
-                Image(systemName: (batteryAlerts.mostUrgentLevel ?? 100) <= 5 ? "battery.0percent" : "battery.25percent")
-                    .foregroundColor((batteryAlerts.mostUrgentLevel ?? 100) <= 10 ? .red : .orange)
-                    .accessibilityLabel("设备电量低，请充电")
+        Color.clear.frame(width: 0, height: 0)
+            .onAppear {
+                AppActionCoordinator.shared.registerWindowOpener { openWindow(id: "main") }
             }
-        }
-            .background(ResourceStatusBarAnchor())
-            .help(batteryAlerts.hasBatteryWarning ? "有设备电量低，请充电" : "cleanMac")
-            .task { openPendingWindow() }
-            .onChange(of: appActions.mainWindowRequest) { _ in openPendingWindow() }
-    }
-
-    private func openPendingWindow() {
-        guard appActions.consumeMainWindowRequest() else { return }
-        appActions.showMainWindow { openWindow(id: "main") }
     }
 }
 
@@ -63,17 +48,10 @@ struct cleanMacApp: App {
         Window("cleanMac", id: "main") {
             ContentView()
                 .background(MainWindowTracker())
+                .background(MainWindowRequestRouter())
         }
         .windowToolbarStyle(.unifiedCompact)
         .windowStyle(.hiddenTitleBar)
-
-        // 菜单栏迷你仪表
-        MenuBarExtra {
-            MenuBarStatusView()
-        } label: {
-            MenuBarWindowRouter()
-        }
-        .menuBarExtraStyle(.window)
 
         // 菜单栏命令
         .commands {

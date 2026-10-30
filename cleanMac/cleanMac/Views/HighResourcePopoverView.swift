@@ -11,7 +11,7 @@ struct HighResourcePopoverView: View {
                 Button { ResourceAlertPresenter.shared.close() } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .buttonStyle(.plain).accessibilityLabel("关闭高占用提醒")
             }
-            Text("检测占用突增、持续高占用或疑似无响应；CPU 100% 约为一个核心。")
+            Text("仅提示持续确认后的异常；稳定内存占用和短时波动不会触发。CPU 100% 约为一个核心。")
                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
             if let date = monitor.sampledAt { Text("更新于 " + date.formatted(date: .omitted, time: .standard)).font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary) }
             ScrollView {

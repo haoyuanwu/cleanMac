@@ -22,6 +22,20 @@ nonisolated struct ResourceProcessSample: Sendable {
 
 nonisolated enum ResourceResponsiveness: Sendable { case unknown, responsive, unresponsive }
 
+nonisolated struct ResourceProcessDetail: Identifiable, Sendable {
+    var id: String { "\(pid):\(birth)" }
+    let pid: Int32
+    let birth: UInt64
+    let path: String
+    let memory: UInt64
+    let cpuPercent: Double?
+}
+nonisolated struct ApplicationUsagePoint: Identifiable, Sendable {
+    let id = UUID()
+    let date: Date
+    let cpu: Double?
+    let memory: UInt64
+}
 nonisolated struct ApplicationResourceUsage: Identifiable, Sendable {
     let application: ResourceAppDescriptor
     let cpuPercent: Double?
@@ -30,6 +44,7 @@ nonisolated struct ApplicationResourceUsage: Identifiable, Sendable {
     var sampleAvailable = true
     var responsiveness: ResourceResponsiveness = .unknown
     var alertReason: String?
+    var processes: [ResourceProcessDetail] = []
     var id: String { application.id }
 }
 
@@ -95,56 +110,82 @@ nonisolated enum ApplicationResourceReader {
                 }
             }
             return ApplicationResourceUsage(application: app, cpuPercent: measured ? cpu : nil,
-                memory: rows.reduce(0) { $0 &+ $1.memory }, processCount: rows.count, sampleAvailable: !rows.isEmpty)
+                memory: rows.reduce(0) { $0 &+ $1.memory }, processCount: rows.count, sampleAvailable: !rows.isEmpty,
+                processes: rows.map { row in
+                    let cpu: Double? = elapsed > 0 && elapsed <= 12 ? previousByID[row.id].flatMap { old in
+                        guard old.path == row.path, row.cpuNanoseconds >= old.cpuNanoseconds else { return nil }
+                        return Double(row.cpuNanoseconds - old.cpuNanoseconds) / (elapsed * 1_000_000_000) * 100
+                    } : nil
+                    return ResourceProcessDetail(pid: row.pid, birth: row.birth, path: row.path, memory: row.memory, cpuPercent: cpu)
+                }.sorted { $0.memory > $1.memory })
         }
     }
 }
 
 nonisolated struct ResourceAlertPolicy {
-    var cpuThreshold: Double = 150
+    var cpuThreshold: Double = 400
     var memoryThreshold: UInt64
-    var duration: TimeInterval = 15
-    var cooldown: TimeInterval = 600
+    var duration: TimeInterval = 60
+    var burstDuration: TimeInterval = 30
+    var stallDuration: TimeInterval = 30
+    var cooldown: TimeInterval = 1800
     private var highSince: [String: TimeInterval] = [:]
     private var lastAlert: [String: TimeInterval] = [:]
     private var lastSample: TimeInterval?
     private var previousUsage: [String: ApplicationResourceUsage] = [:]
     private var burstSince: [String: TimeInterval] = [:]
+    private var memoryGrowthSince: [String: TimeInterval] = [:]
+    private var memoryHistory: [String: [(time: TimeInterval, bytes: UInt64)]] = [:]
     private var unresponsiveSince: [String: TimeInterval] = [:]
     private var notifiedEpisodes = Set<String>()
 
     mutating func evaluate(_ usages: [ApplicationResourceUsage], now: TimeInterval, notificationsEnabled: Bool = true) -> (high: [ApplicationResourceUsage], notify: [ApplicationResourceUsage]) {
-        if let lastSample, now - lastSample > 12 || now < lastSample { highSince = [:]; previousUsage = [:]; burstSince = [:]; unresponsiveSince = [:] }
+        if let lastSample, now - lastSample > 12 || now < lastSample {
+            highSince = [:]; previousUsage = [:]; burstSince = [:]
+            memoryGrowthSince = [:]; memoryHistory = [:]; unresponsiveSince = [:]
+        }
         lastSample = now
         let live = Set(usages.map(\.id))
         notifiedEpisodes.formIntersection(live)
         highSince = highSince.filter { live.contains($0.key) }
         burstSince = burstSince.filter { live.contains($0.key) }
+        memoryGrowthSince = memoryGrowthSince.filter { live.contains($0.key) }
+        memoryHistory = memoryHistory.filter { live.contains($0.key) }
         unresponsiveSince = unresponsiveSince.filter { live.contains($0.key) }
         defer { previousUsage = Dictionary(usages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
         lastAlert = lastAlert.filter { now >= $0.value && now - $0.value < cooldown }
         var high: [ApplicationResourceUsage] = [], notify: [ApplicationResourceUsage] = []
         for usage in usages {
-            let isHigh = (usage.cpuPercent ?? 0) >= cpuThreshold || usage.memory >= memoryThreshold
-            if isHigh {
+            let cpuHigh = usage.cpuPercent.map { $0 >= cpuThreshold } ?? false
+            if cpuHigh {
                 if highSince[usage.id] == nil { highSince[usage.id] = now }
-                if let old = previousUsage[usage.id] {
-                    let cpuJump = usage.cpuPercent.map { cpu in old.cpuPercent.map { cpu >= cpuThreshold && cpu >= max($0 * 2, $0 + cpuThreshold * 0.75) } ?? false } ?? false
-                    let memoryJump = usage.memory >= memoryThreshold && usage.memory > old.memory
-                        && usage.memory - old.memory >= max(512 * 1024 * 1024, memoryThreshold / 4)
-                    if burstSince[usage.id] == nil && (cpuJump || memoryJump) { burstSince[usage.id] = now }
+                if let old = previousUsage[usage.id]?.cpuPercent, let cpu = usage.cpuPercent,
+                   cpu >= max(old * 2, old + cpuThreshold * 0.75), burstSince[usage.id] == nil {
+                    burstSince[usage.id] = now
                 }
             } else { highSince[usage.id] = nil; burstSince[usage.id] = nil }
+
+            // 大型应用的稳定内存用量不等于异常；需超过阈值且在 90 秒内明显增长。
+            var history = (memoryHistory[usage.id] ?? []).filter { now - $0.time <= 90 }
+            let baseline = history.map(\.bytes).min()
+            let growth = baseline.map { usage.memory > $0 && usage.memory - $0 >= max(1024 * 1024 * 1024, memoryThreshold / 4) } ?? false
+            let memoryGrowing = usage.memory >= memoryThreshold && growth
+            if memoryGrowing {
+                if memoryGrowthSince[usage.id] == nil { memoryGrowthSince[usage.id] = now }
+            } else { memoryGrowthSince[usage.id] = nil }
+            history.append((now, usage.memory)); memoryHistory[usage.id] = history
+
             if usage.responsiveness == .unresponsive {
                 if unresponsiveSince[usage.id] == nil { unresponsiveSince[usage.id] = now }
             } else { unresponsiveSince[usage.id] = nil }
-            if !isHigh && usage.responsiveness != .unresponsive { notifiedEpisodes.remove(usage.id) }
+            if !cpuHigh && !memoryGrowing && usage.responsiveness != .unresponsive { notifiedEpisodes.remove(usage.id) }
             let sustained = highSince[usage.id].map { now - $0 >= duration } ?? false
-            let burst = burstSince[usage.id].map { now - $0 >= min(5, duration) } ?? false
-            let stalled = unresponsiveSince[usage.id].map { now - $0 >= duration } ?? false
-            guard sustained || burst || stalled else { continue }
+            let burst = burstSince[usage.id].map { now - $0 >= burstDuration } ?? false
+            let growing = memoryGrowthSince[usage.id].map { now - $0 >= burstDuration } ?? false
+            let stalled = unresponsiveSince[usage.id].map { now - $0 >= stallDuration } ?? false
+            guard sustained || burst || growing || stalled else { continue }
             var entry = usage
-            entry.alertReason = stalled ? "疑似无响应 · 连续响应超时" : burst ? "占用突然升高" : "持续高占用"
+            entry.alertReason = stalled ? "疑似无响应 · 连续响应超时" : growing ? "内存持续明显增长" : burst ? "CPU 突增且持续偏高" : "CPU 持续高占用"
             high.append(entry)
             if notificationsEnabled, lastAlert[usage.id] == nil, !notifiedEpisodes.contains(usage.id) {
                 notify.append(entry); lastAlert[usage.id] = now; notifiedEpisodes.insert(usage.id)

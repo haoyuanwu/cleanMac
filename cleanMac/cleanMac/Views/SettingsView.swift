@@ -6,14 +6,15 @@ import AppKit
 struct SettingsView: View {
     @AppStorage("com.cleanMac.showMenuBarNetworkSpeed") private var showMenuBarNetworkSpeed = false
     @AppStorage("com.cleanMac.resourceAlerts") private var resourceAlerts = true
-    @AppStorage("com.cleanMac.resourceCPUThreshold") private var resourceCPUThreshold = 150.0
-    @AppStorage("com.cleanMac.resourceMemoryPercent") private var resourceMemoryPercent = 20.0
+    @AppStorage("com.cleanMac.resourceCPUThreshold") private var resourceCPUThreshold = 400.0
+    @AppStorage("com.cleanMac.resourceMemoryPercent") private var resourceMemoryPercent = 35.0
     @State private var isHistoryExpanded = false
     @State private var showingDonation = false
     @State private var showingCacheScanIgnores = false
     @State private var showingCleaningHistory = false
     @State private var showingCacheRules = false
     @State private var cacheScanIgnoreCount = 0
+    @ObservedObject private var resourceMonitor = HighResourceMonitor.shared
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var scheduledScan = ScheduledScanService.shared
@@ -45,18 +46,32 @@ struct SettingsView: View {
                     settingsCard {
                         VStack(alignment: .leading, spacing: 12) {
                             Toggle("高占用应用提醒", isOn: $resourceAlerts).font(.system(size: 14, weight: .semibold))
-                            Text("每 5 秒采样，检测占用突增或持续高占用时提醒，不增加状态栏图标。同一轮异常只提醒一次，恢复后再次异常仍有 10 分钟冷却。")
+                            Text("每 5 秒采样；CPU 持续偏高 60 秒、突增持续 30 秒，或连续 30 秒疑似无响应才提醒。启动后及新应用启动的前 60 秒不提醒，同一应用提醒冷却 30 分钟。")
                                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
                             HStack {
                                 Picker("CPU", selection: $resourceCPUThreshold) {
-                                    ForEach([100.0, 150, 200, 400], id: \.self) { Text("\(Int($0))%").tag($0) }
+                                    ForEach([100.0, 150, 200, 300, 400, 600, 800], id: \.self) { Text("\(Int($0))%").tag($0) }
                                 }
                                 Picker("内存占比", selection: $resourceMemoryPercent) {
-                                    ForEach([10.0, 20, 30, 40], id: \.self) { Text("\(Int($0))%").tag($0) }
+                                    ForEach([10.0, 20, 30, 35, 40, 50], id: \.self) { Text("\(Int($0))%").tag($0) }
                                 }
                             }.disabled(!resourceAlerts)
-                            Text("CPU 100% 约为一个核心；内存阈值至少为 2 GB。系统应用、自身与白名单应用受到保护。已有辅助功能权限时，还会检测持续响应超时（疑似无响应），不会主动请求权限。")
+                            Text("CPU 100% 约为一个核心。内存需超过阈值（至少 4 GB），且 90 秒内增长至少 1 GB 或阈值的 25%，并持续 30 秒才提醒；稳定的大内存占用不会触发。系统、自身和白名单应用受保护；疑似无响应检测仅在已有辅助功能权限时运行。")
                                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                            if !resourceMonitor.ignoredBundleIDs.isEmpty {
+                                DisclosureGroup("已忽略 \(resourceMonitor.ignoredBundleIDs.count) 个应用的异常提醒") {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ForEach(resourceMonitor.ignoredBundleIDs.sorted(), id: \.self) { id in
+                                            HStack {
+                                                Text(NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)?.deletingPathExtension().lastPathComponent ?? id)
+                                                    .lineLimit(1).help(id)
+                                                Spacer()
+                                                Button("恢复提醒") { resourceMonitor.restoreAlert(bundleID: id) }
+                                            }
+                                        }
+                                    }.padding(.top, 8)
+                                }.font(.system(size: 12))
+                            }
                         }
                     }
                 }

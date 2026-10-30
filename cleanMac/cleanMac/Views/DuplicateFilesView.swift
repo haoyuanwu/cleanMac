@@ -378,17 +378,9 @@ struct DuplicateFilesView: View {
     }
 
     private var scanningState: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .scaleEffect(1.15)
-            Text("正在扫描重复文件…")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.secondary)
-            Text("下载 / 文稿 / 桌面 / 影片 · 单文件 ≥ 1MB")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 280)
+        ScanningPlaceholderView(title: "正在扫描重复文件…",
+            subtitle: "下载 / 文稿 / 桌面 / 影片 · 单文件 ≥ 1MB")
+            .frame(maxWidth: .infinity, minHeight: 380)
     }
 
     private var emptyState: some View {

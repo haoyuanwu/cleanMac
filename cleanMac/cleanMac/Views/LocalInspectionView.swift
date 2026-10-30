@@ -60,12 +60,9 @@ struct LocalInspectionView: View {
             }
             if let statusMessage { Text(statusMessage).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary).textSelection(.enabled) }
             if session.loading {
-                VStack(spacing: 18) {
-                    ProgressView().controlSize(.large)
-                    Text("正在扫描" + title).font(.system(size: 19, weight: .semibold))
-                    Text("读取本机信息，不加载插件或启动被扫描的程序。")
-                        .font(.system(size: 13)).foregroundStyle(Theme.navigationSecondary)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScanningPlaceholderView(title: "正在扫描" + title,
+                    subtitle: "读取本机信息，不加载插件或启动被扫描的程序。")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let report = session.report {
                 HStack {
                     TextField("搜索软件、项目名称或路径", text: $query).textFieldStyle(.plain)

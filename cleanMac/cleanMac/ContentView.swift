@@ -58,7 +58,6 @@ struct ContentView: View {
                 setPageTravel(toward: group)
                 withAnimation(navigationMotion) {
                     if group == .overview { openDestination(.page(.dashboard)) }
-                    else if group == .device { openDestination(.page(.deviceInfo)) }
                     else { showingPage = false; selectedGroup = group; returnToOverview = false }
                 }
             }
@@ -73,7 +72,7 @@ struct ContentView: View {
                         VStack(spacing: 0) {
                             if selectedTab != .dashboard {
                                 HStack(spacing: 12) {
-                                    if selectedTab != .dashboard && selectedTab != .deviceInfo {
+                                    if selectedTab != .dashboard {
                                         Button {
                                             if returnToOverview || selectedGroup == .overview { openDestination(.page(.dashboard)) }
                                             else {
@@ -282,7 +281,19 @@ struct ContentView: View {
                 openInsights: { openDestination(.page(.insights)) }
             )
         case .deviceInfo:
-            DeviceInformationView(viewModel: deviceInformationViewModel)
+            DeviceInformationView(viewModel: deviceInformationViewModel, section: .system)
+        case .applicationUsage:
+            ApplicationResourceView()
+        case .deviceCPU:
+            CPUStatusView()
+        case .deviceMemory:
+            DeviceInformationView(viewModel: deviceInformationViewModel, section: .memory)
+        case .deviceConnections:
+            DeviceInformationView(viewModel: deviceInformationViewModel, section: .connections)
+        case .deviceBattery:
+            DeviceInformationView(viewModel: deviceInformationViewModel, section: .battery)
+        case .deviceStorage:
+            DeviceInformationView(viewModel: deviceInformationViewModel, section: .storage, onOpen: openDestination)
         case .category:
             if let category = viewModel.selectedCategory {
                 CategoryDetailView(category: category, viewModel: viewModel) {
@@ -346,7 +357,10 @@ struct ContentView: View {
 
     private func handlePendingDeviceInfo() {
         guard appActions.consumeDeviceInfoRequest() else { return }
-        openDestination(.page(.deviceInfo))
+        setPageTravel(toward: .device)
+        withAnimation(navigationMotion) {
+            selectedGroup = .device; returnToOverview = false; showingPage = false
+        }
         if deviceInformationViewModel.snapshot != nil {
             deviceInformationViewModel.refresh()
         }

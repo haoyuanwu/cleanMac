@@ -420,7 +420,7 @@ final class RemainingPlanTests: XCTestCase {
         ApplicationResourceUsage(application: ResourceAppDescriptor(pid: 100, launchDate: Date(timeIntervalSince1970: 10), bundleID: "example", name: "Example", path: "/Applications/Example.app"), cpuPercent: cpu, memory: memory, processCount: 1)
     }
     func testResourceAlertWaitsForSustainedUsageAndRecovers() {
-        var policy = ResourceAlertPolicy(memoryThreshold: 100)
+        var policy = ResourceAlertPolicy(cpuThreshold: 150, memoryThreshold: 100, duration: 15)
         XCTAssertTrue(policy.evaluate([resourceUsage()], now: 0).high.isEmpty)
         _ = policy.evaluate([resourceUsage()], now: 5)
         _ = policy.evaluate([resourceUsage()], now: 10)
@@ -428,7 +428,7 @@ final class RemainingPlanTests: XCTestCase {
         XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 10)], now: 20).high.isEmpty)
     }
     func testResourceAlertCooldownAndSnoozeDoNotConsumeNotification() {
-        var policy = ResourceAlertPolicy(memoryThreshold: 100, duration: 0, cooldown: 60)
+        var policy = ResourceAlertPolicy(cpuThreshold: 150, memoryThreshold: 100, duration: 0, cooldown: 60)
         XCTAssertTrue(policy.evaluate([resourceUsage()], now: 0, notificationsEnabled: false).notify.isEmpty)
         XCTAssertEqual(policy.evaluate([resourceUsage()], now: 5).notify.count, 1)
         XCTAssertTrue(policy.evaluate([resourceUsage()], now: 10).notify.isEmpty)
@@ -437,17 +437,22 @@ final class RemainingPlanTests: XCTestCase {
         XCTAssertEqual(policy.evaluate([resourceUsage()], now: 80).notify.count, 1)
     }
     func testResourceAlertSleepGapResetsSustainedDuration() {
-        var policy = ResourceAlertPolicy(memoryThreshold: 100)
+        var policy = ResourceAlertPolicy(cpuThreshold: 150, memoryThreshold: 100, duration: 15)
         _ = policy.evaluate([resourceUsage()], now: 0)
         XCTAssertTrue(policy.evaluate([resourceUsage()], now: 100).high.isEmpty)
         _ = policy.evaluate([resourceUsage()], now: 105)
         _ = policy.evaluate([resourceUsage()], now: 110)
         XCTAssertEqual(policy.evaluate([resourceUsage()], now: 115).high.count, 1)
     }
-    func testResourceMemoryCanTriggerWithoutCPUReading() {
-        var policy = ResourceAlertPolicy(memoryThreshold: 100, duration: 0)
-        XCTAssertEqual(policy.evaluate([resourceUsage(cpu: nil, memory: 100)], now: 0).high.count, 1)
-        XCTAssertTrue(policy.evaluate([], now: 5).high.isEmpty)
+    func testResourceMemoryGrowthCanTriggerWithoutCPUReading() {
+        let gib: UInt64 = 1024 * 1024 * 1024
+        var policy = ResourceAlertPolicy(memoryThreshold: 4 * gib)
+        _ = policy.evaluate([resourceUsage(cpu: nil, memory: gib)], now: 0)
+        for time in stride(from: 5.0, through: 30, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: nil, memory: 5 * gib)], now: time).notify.isEmpty)
+        }
+        XCTAssertEqual(policy.evaluate([resourceUsage(cpu: nil, memory: 5 * gib)], now: 35).notify.first?.alertReason, "内存持续明显增长")
+        XCTAssertTrue(policy.evaluate([], now: 40).high.isEmpty)
     }
     func testResourceAggregatorCountsHelpersOnceAndKeepsIndependentApp() {
         let a = resourceUsage().application
@@ -487,17 +492,18 @@ final class RemainingPlanTests: XCTestCase {
     func testResourceBurstRequiresBaselineAndConfirmationSample() {
         var policy = ResourceAlertPolicy(memoryThreshold: 1000)
         _ = policy.evaluate([resourceUsage(cpu: 10)], now: 0)
-        XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 200)], now: 5).notify.isEmpty)
-        let result = policy.evaluate([resourceUsage(cpu: 200)], now: 10)
-        XCTAssertEqual(result.notify.first?.alertReason, "占用突然升高")
+        for time in stride(from: 5.0, through: 30, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 600)], now: time).notify.isEmpty)
+        }
+        XCTAssertEqual(policy.evaluate([resourceUsage(cpu: 600)], now: 35).notify.first?.alertReason, "CPU 突增且持续偏高")
     }
     func testResourceStallRequiresRepeatedTimeoutAndClearsOnRecovery() {
         var policy = ResourceAlertPolicy(memoryThreshold: 1000)
         var usage = resourceUsage(cpu: 1); usage.responsiveness = .unresponsive
-        for time in [0.0, 5, 10] { XCTAssertTrue(policy.evaluate([usage], now: time).notify.isEmpty) }
-        XCTAssertEqual(policy.evaluate([usage], now: 15).notify.first?.alertReason, "疑似无响应 · 连续响应超时")
+        for time in stride(from: 0.0, through: 25, by: 5) { XCTAssertTrue(policy.evaluate([usage], now: time).notify.isEmpty) }
+        XCTAssertEqual(policy.evaluate([usage], now: 30).notify.first?.alertReason, "疑似无响应 · 连续响应超时")
         usage.responsiveness = .responsive
-        XCTAssertTrue(policy.evaluate([usage], now: 20).high.isEmpty)
+        XCTAssertTrue(policy.evaluate([usage], now: 35).high.isEmpty)
     }
     func testUnknownResponsivenessNeverReportedAsHang() {
         var policy = ResourceAlertPolicy(memoryThreshold: 1000)
@@ -505,7 +511,7 @@ final class RemainingPlanTests: XCTestCase {
     }
 
     func testResourceContinuousEpisodeNeverReopensAfterCooldown() {
-        var policy = ResourceAlertPolicy(memoryThreshold: 1000, duration: 0, cooldown: 10)
+        var policy = ResourceAlertPolicy(cpuThreshold: 150, memoryThreshold: 1000, duration: 0, cooldown: 10)
         XCTAssertEqual(policy.evaluate([resourceUsage()], now: 0).notify.count, 1)
         for time in stride(from: 5.0, through: 40, by: 5) {
             XCTAssertTrue(policy.evaluate([resourceUsage()], now: time).notify.isEmpty)
@@ -522,6 +528,50 @@ final class RemainingPlanTests: XCTestCase {
         XCTAssertEqual(result.first?.sampleAvailable, false)
         XCTAssertNil(result.first?.cpuPercent)
         XCTAssertEqual(result.first?.processCount, 0)
+    }
+
+    func testResourceDefaultIgnoresBriefCPUAndModerateSustainedUsage() {
+        var policy = ResourceAlertPolicy(memoryThreshold: 1000)
+        for time in stride(from: 0.0, through: 120, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: time < 20 ? 600 : 200)], now: time).notify.isEmpty)
+        }
+    }
+    func testResourceDefaultSteadyCPURequiresFullMinute() {
+        var policy = ResourceAlertPolicy(memoryThreshold: 1000)
+        for time in stride(from: 0.0, through: 55, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 500)], now: time).notify.isEmpty)
+        }
+        XCTAssertEqual(policy.evaluate([resourceUsage(cpu: 500)], now: 60).notify.count, 1)
+    }
+    func testResourceStableLargeMemoryNeverTriggers() {
+        let gib: UInt64 = 1024 * 1024 * 1024
+        var policy = ResourceAlertPolicy(memoryThreshold: 4 * gib)
+        for time in stride(from: 0.0, through: 300, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 10, memory: 12 * gib)], now: time).high.isEmpty)
+        }
+    }
+    func testResourceMemoryGrowthRequiresThresholdAndIgnoresSleepGap() {
+        let gib: UInt64 = 1024 * 1024 * 1024
+        var policy = ResourceAlertPolicy(memoryThreshold: 4 * gib)
+        _ = policy.evaluate([resourceUsage(cpu: nil, memory: gib)], now: 0)
+        for time in stride(from: 5.0, through: 40, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: nil, memory: 3 * gib)], now: time).high.isEmpty)
+        }
+        for time in stride(from: 100.0, through: 200, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: nil, memory: 8 * gib)], now: time).high.isEmpty)
+        }
+    }
+    func testResourceCPURecoveryBreaksBurstConfirmation() {
+        var policy = ResourceAlertPolicy(memoryThreshold: 1000)
+        _ = policy.evaluate([resourceUsage(cpu: 10)], now: 0)
+        for time in stride(from: 5.0, through: 25, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 600)], now: time).notify.isEmpty)
+        }
+        _ = policy.evaluate([resourceUsage(cpu: 10)], now: 30)
+        for time in stride(from: 35.0, through: 60, by: 5) {
+            XCTAssertTrue(policy.evaluate([resourceUsage(cpu: 600)], now: time).notify.isEmpty)
+        }
+        XCTAssertEqual(policy.evaluate([resourceUsage(cpu: 600)], now: 65).notify.count, 1)
     }
 
 }
