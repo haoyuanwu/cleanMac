@@ -29,7 +29,7 @@ suite.addTest(AppUninstallAssociationTests.defaultTestSuite)
 suite.addTest(RemainingPlanTests.defaultTestSuite)
 suite.addTest(DeviceTelemetryTests.defaultTestSuite)
 suite.run()
-guard let result = suite.testRun, result.executionCount == 135, result.totalFailureCount == 0 else { exit(1) }
+guard let result = suite.testRun, result.executionCount == 138, result.totalFailureCount == 0 else { exit(1) }
 SWIFT
 
 swiftc -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \

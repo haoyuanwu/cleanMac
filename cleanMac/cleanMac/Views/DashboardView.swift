@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 单一主流程：开始清理 → 扫描 → 智能一键清理；高级扫描保留为次要操作。
+/// 单一主流程：开始扫描 → 扫描 → 智能一键清理；高级扫描保留为次要操作。
 struct DashboardView: View {
     @ObservedObject var viewModel: MainViewModel
     @ObservedObject var duplicateSession: DuplicateScanSession
@@ -52,24 +52,20 @@ struct DashboardView: View {
     }
     private var headline: String {
         if isDeepSearching { return "正在深度扫描" }
-        if viewModel.isScanning { return "正在查找可清理项目" }
+        if viewModel.isScanning { return "正在扫描" }
         if viewModel.isCleaning { return "正在清理" }
         if scanFinished {
-            if hasRecommendation { return "准备好，轻装出发" }
-            return viewModel.totalCleanedSize > 0 ? "清理已完成" : "暂时没有推荐清理项"
+            if hasRecommendation { return "发现推荐项目" }
+            return viewModel.totalCleanedSize > 0 ? "清理已完成" : "暂无推荐项"
         }
-        return "让你的 Mac 轻装上阵"
+        return "开始扫描"
     }
-    private var detail: String {
+    private var artworkSubtitle: String {
         if isDeepSearching { return deepSearchStage }
-        if viewModel.isScanning { return "正在检查缓存、日志与应用残留，请稍候。" }
-        if viewModel.isCleaning { return "正在处理你确认的项目，请稍候。" }
-        if scanFinished {
-            if hasRecommendation { return "已整理低风险推荐项目，确认后即可一键清理。" }
-            return "可以重新扫描，或使用深度扫描继续检查其他空间。"
-        }
-        if viewModel.hasOverviewScan { return "上次检查尚未完成，重新扫描后再确认清理。" }
-        return "先查找可清理的缓存与日志，再由你确认处理。"
+        if scanning { return "" }
+        if viewModel.isCleaning { return "正在处理所选项目" }
+        if scanFinished { return hasRecommendation ? "推荐项目 · 逻辑大小" : "可以再做一次深度扫描" }
+        return ""
     }
 
     var body: some View {
@@ -110,44 +106,29 @@ struct DashboardView: View {
 
     private func hero(viewport: CGSize) -> some View {
         VStack(spacing: scanFinished ? 12 : 18) {
-            DashboardHeroArtwork(phase: heroPhase, availableSize: viewport)
-            VStack(spacing: 9) {
-                Text(headline).font(.system(size: 27, weight: .bold, design: .rounded))
-                    .id(headline).transition(stateTransition)
-                Text(detail).font(.system(size: 13)).foregroundStyle(Theme.navigationSecondary)
-                    .multilineTextAlignment(.center).frame(maxWidth: 460)
-                    .id(heroPhase).transition(.opacity)
-            }
+            DashboardHeroArtwork(phase: heroPhase, availableSize: viewport,
+                                 title: headline, subtitle: artworkSubtitle,
+                                 recommendation: scanFinished && hasRecommendation ? viewModel.smartCleanPlan.totalSizeFormatted : nil,
+                                 disabled: busy || (scanFinished && !hasRecommendation),
+                                 onActivate: {
+                                     if scanFinished { viewModel.requestSmartClean() } else { startScan() }
+                                 })
             if scanning {
                 Text(activeScanPath ?? "正在准备扫描路径…").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
                     .lineLimit(1).truncationMode(.middle).frame(maxWidth: 500, minHeight: 18)
                     .help(activeScanPath ?? "正在准备扫描路径…")
                     .transition(stateTransition)
             }
-            if scanFinished && hasRecommendation {
-                VStack(spacing: 4) {
-                    Text(viewModel.smartCleanPlan.totalSizeFormatted)
-                        .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
-                    Text("推荐项目的逻辑大小").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
-                }
-            }
             if viewModel.isCleaning {
                 ProgressView("正在清理…").transition(.opacity)
-            } else {
-                DashboardScanControls(scanning: scanning, progress: progress,
-                    title: scanFinished ? "智能一键清理" : "开始清理",
-                    disabled: scanFinished && !hasRecommendation,
-                    onStart: {
-                        if scanFinished { viewModel.requestSmartClean() } else { startScan() }
-                    }, onCancel: {
-                        if isDeepSearching { onCancelDeepSearch() } else { viewModel.cancelScanAll() }
-                    })
-                    .help(scanning ? "可随时取消扫描" : scanFinished ? "核对推荐项目并确认清理" : "先扫描可清理项目，扫描后确认清理")
+            } else if scanning {
+                DashboardScanProgress(progress: progress) {
+                    if isDeepSearching { onCancelDeepSearch() } else { viewModel.cancelScanAll() }
+                }.transition(stateTransition)
             }
-            if scanFinished {
-                Text(hasReadIssues ? "部分位置未能完整读取，请在确认前核对推荐项目。" : "清理前可核对项目，回收后可在清理记录中恢复。")
+            if scanFinished && hasReadIssues {
+                Label("部分位置未读全，请在清单中核对", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
-                    .multilineTextAlignment(.center)
             }
         }.frame(maxWidth: .infinity)
     }
@@ -161,7 +142,7 @@ struct DashboardView: View {
                             .frame(width: 40, height: 40).background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
                             Text("深度扫描清理").font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary)
-                            Text(hasCompletedDeepSearch ? "已完成深度扫描，可在对应模块查看和处理" : "进一步检查大文件、重复文件与开发数据")
+                            Text(hasCompletedDeepSearch ? "已完成，可到对应模块查看" : "大文件、重复文件与开发数据")
                                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
                         }
                         Spacer(minLength: 8)

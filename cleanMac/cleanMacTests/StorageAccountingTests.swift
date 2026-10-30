@@ -70,4 +70,50 @@ final class StorageAccountingTests: XCTestCase {
             XCTAssertEqual(measurement?.cloudPlaceholderCount, 0)
         }
     }
+
+    func testReviewKeepsDeduplicatedCategoryOwnership() {
+        let cache = item("/Users/test/Library/Caches/review-browser")
+        let plan = SmartCleanPlan.build(from: [
+            .systemCache: .init(category: .systemCache, items: [cache]),
+            .browserCache: .init(category: .browserCache, items: [cache])
+        ])
+        XCTAssertEqual(plan.categoryByPath[cache.path], .browserCache)
+        XCTAssertEqual(plan.reviewGroups().map(\.key.category), [.browserCache])
+        XCTAssertEqual(plan.reviewGroups().flatMap(\.items).count, 1)
+    }
+
+    func testReviewGroupsByApplicationAndCategoryWithoutMergingUnknownOwners() {
+        let app = CacheApplication(id: "test.review", name: "Review App", path: nil)
+        var first = item("/Users/test/Library/Caches/review-first", size: 30)
+        var second = item("/Users/test/Library/Caches/review-second", size: 20)
+        var browser = item("/Users/test/Library/Caches/review-browser", size: 40)
+        first.cacheApplication = app; second.cacheApplication = app; browser.cacheApplication = app
+        let unknown = item("/Users/test/Library/Caches/review-unknown", size: 5)
+        let plan = SmartCleanPlan.build(from: [
+            .applicationCache: .init(category: .applicationCache, items: [first, second, unknown]),
+            .browserCache: .init(category: .browserCache, items: [browser])
+        ])
+        let groups = plan.reviewGroups()
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.first?.items.map(\.path), [first.path, second.path])
+        XCTAssertEqual(groups.first?.totalSize, 50)
+        XCTAssertEqual(groups.filter { $0.key.application == nil }.flatMap(\.items), [unknown])
+        XCTAssertEqual(groups.reduce(0) { $0 + $1.totalSize }, plan.totalSize)
+    }
+
+    func testReviewSearchAndSortPreserveOriginalPlanAndSupportUnknownDates() {
+        let app = CacheApplication(id: "test.review", name: "Review App", path: nil)
+        var old = item("/Users/test/Library/Caches/z-review", size: 10)
+        var recent = FileItem(path: "/Users/test/Library/Caches/a-review", name: "a-review", size: 20,
+                              modificationDate: Date(), isDirectory: false)
+        old.cacheApplication = app; recent.cacheApplication = app
+        let plan = SmartCleanPlan.build(from: [.applicationCache: .init(category: .applicationCache, items: [old, recent])])
+        XCTAssertEqual(plan.reviewGroups(query: " REVIEW APP ").flatMap(\.items).count, 2)
+        XCTAssertEqual(plan.reviewGroups(query: "z-review").flatMap(\.items), [old])
+        XCTAssertTrue(plan.reviewGroups(query: "不存在的项目").isEmpty)
+        XCTAssertEqual(plan.reviewGroups(sort: .modified).first?.items.first?.path, recent.path)
+        XCTAssertEqual(plan.reviewGroups(sort: .name).first?.items.first?.path, recent.path)
+        XCTAssertEqual(plan.items.count, 2)
+        XCTAssertEqual(plan.totalSize, 30)
+    }
 }

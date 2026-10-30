@@ -28,13 +28,15 @@ final class AppActionCoordinator: ObservableObject {
             NotificationCenter.default.removeObserver(mainWindowCloseObserver)
         }
         mainWindow = window
+        NSApp.setActivationPolicy(.regular)
         let closingWindowID = ObjectIdentifier(window)
         mainWindowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            // 在主窗口关闭的同一轮事件中隐藏 Dock，避免异步切换时与重新打开竞争。
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 if let mainWindow = self.mainWindow,
                    ObjectIdentifier(mainWindow) != closingWindowID { return }

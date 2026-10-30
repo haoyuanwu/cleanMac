@@ -2,6 +2,15 @@ import SwiftUI
 import AppKit
 
 private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
+    // 红色关闭按钮只关闭主窗口；状态栏、监测与计划任务继续运行。
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // 从 Finder 再次打开运行中的应用时，恢复主窗口和 Dock 图标。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppActionCoordinator.shared.requestMainWindow()
+        return false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         StorageGrowthMonitor.shared.start()
         TrashMonitor.shared.start()

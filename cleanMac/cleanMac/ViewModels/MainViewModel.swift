@@ -48,7 +48,7 @@ class MainViewModel: ObservableObject {
     /// 智能清理确认
     @Published var smartCleanDraft: SmartCleanPlan?
     @Published var smartCleanSelectedPaths: Set<String> = []
-    @Published var showingSmartCleanDialog = false
+    @Published var showingSmartCleanReview = false
     /// 清空废纸篓过程占位（阻断交互）
     @Published var isEmptyingTrash = false
     @Published private(set) var isSmartCleaning = false
@@ -232,6 +232,7 @@ class MainViewModel: ObservableObject {
     func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = false) async {
         guard !isScanning else { return }
 
+        cancelSmartClean()
         scanState = .scanning
         overallProgress = 0
         AppLog.info("scanAll start")
@@ -299,6 +300,7 @@ class MainViewModel: ObservableObject {
     /// 扫描单个类别
     func scanCategory(_ category: ScanCategory, forceFull: Bool = false) async {
         guard scanResults[category]?.isScanning != true else { return }
+        if ScanCategory.overviewScanCategories.contains(category) { cancelSmartClean() }
         let scanID = UUID()
         activeScanIDs[category] = scanID
         let rules = CacheRuleStore.shared.activeCatalog
@@ -374,7 +376,7 @@ class MainViewModel: ObservableObject {
         })
     }
 
-    /// 打开智能清理确认弹窗（先看清单）
+    /// 进入智能清理检查页；返回后保留本轮勾选，新扫描会作废旧清单。
     func requestSmartClean() {
         let plan = smartCleanPlan
         guard !plan.isEmpty else {
@@ -383,19 +385,21 @@ class MainViewModel: ObservableObject {
             showingAlert = true
             return
         }
+        let availablePaths = Set(plan.items.map(\.path))
+        if smartCleanDraft == nil { smartCleanSelectedPaths = availablePaths }
+        else { smartCleanSelectedPaths.formIntersection(availablePaths) }
         smartCleanDraft = plan
-        smartCleanSelectedPaths = Set(plan.items.map(\.path))
-        showingSmartCleanDialog = true
+        showingSmartCleanReview = true
     }
 
     func cancelSmartClean() {
         smartCleanDraft = nil
         smartCleanSelectedPaths = []
-        showingSmartCleanDialog = false
+        showingSmartCleanReview = false
     }
 
     func addSmartCleanItemToWhitelist(_ item: FileItem) {
-        guard showingSmartCleanDialog, smartCleanDraft?.items.contains(where: { $0.path == item.path }) == true else { return }
+        guard showingSmartCleanReview, smartCleanDraft?.items.contains(where: { $0.path == item.path }) == true else { return }
         UserWhitelist.add(item.path)
         let protectedPath = SafetyWhitelist.normalizeForCompare(item.path)
         for category in Array(scanResults.keys) {
@@ -415,8 +419,10 @@ class MainViewModel: ObservableObject {
             cancelSmartClean()
             return
         }
+        let availablePaths = Set(smartCleanPlan.items.map(\.path))
         let selected = plan.items.filter {
-            smartCleanSelectedPaths.contains($0.path) && !UserWhitelist.isWhitelisted($0.path)
+            smartCleanSelectedPaths.contains($0.path) && availablePaths.contains($0.path)
+                && !UserWhitelist.isWhitelisted($0.path)
         }
         cancelSmartClean()
 

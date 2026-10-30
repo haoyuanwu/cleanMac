@@ -34,8 +34,13 @@ struct ContentView: View {
         reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.44, dampingFraction: 0.88)
     }
 
+    private var reviewingSmartClean: Bool {
+        showingPage && selectedTab == .dashboard && viewModel.showingSmartCleanReview
+    }
+
     private var visiblePageID: String {
-        showingPage ? "detail-" + activeDestination.id : "cards-" + selectedGroup.id
+        if reviewingSmartClean { return "smart-clean-review" }
+        return showingPage ? "detail-" + activeDestination.id : "cards-" + selectedGroup.id
     }
 
     private var pageTransition: AnyTransition {
@@ -55,6 +60,7 @@ struct ContentView: View {
         HStack(spacing: 0) {
             SidebarView(viewModel: viewModel, xcodeIsScanning: xcodeAnalysisViewModel.isScanning,
                         diskMapIsLoading: diskMapSession.isLoading, selectedGroup: selectedGroup) { group in
+                viewModel.showingSmartCleanReview = false
                 setPageTravel(toward: group)
                 withAnimation(navigationMotion) {
                     if group == .overview { openDestination(.page(.dashboard)) }
@@ -63,7 +69,18 @@ struct ContentView: View {
             }
             ZStack {
                 Group {
-                    if !showingPage {
+                    if reviewingSmartClean, let plan = viewModel.smartCleanDraft {
+                        SmartCleanReviewView(
+                            plan: plan, selectedPaths: $viewModel.smartCleanSelectedPaths,
+                            onAddToWhitelist: viewModel.addSmartCleanItemToWhitelist,
+                            onConfirm: viewModel.confirmSmartClean,
+                            onBack: {
+                                pageTravelDirection = -1
+                                viewModel.showingSmartCleanReview = false
+                            }
+                        )
+                        .id("smart-clean-review").transition(pageTransition)
+                    } else if !showingPage {
                         WorkspaceCardsView(group: selectedGroup, viewModel: viewModel,
                                            namespace: workspaceAnimation, onOpen: openDestination)
                             .id("cards-" + selectedGroup.id)
@@ -147,32 +164,6 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(110)
             }
-            if viewModel.showingSmartCleanDialog {
-                GeometryReader { geometry in
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .overlay(Color.black.opacity(0.23))
-                            .ignoresSafeArea()
-                            .onTapGesture { viewModel.cancelSmartClean() }
-
-                        SmartCleanConfirmDialog(
-                            plan: viewModel.smartCleanDraft ?? SmartCleanPlan(items: [], totalSize: 0, categorySummary: []),
-                            selectedPaths: $viewModel.smartCleanSelectedPaths,
-                            onAddToWhitelist: { viewModel.addSmartCleanItemToWhitelist($0) },
-                            onConfirm: { viewModel.confirmSmartClean() },
-                            onCancel: { viewModel.cancelSmartClean() }
-                        )
-                        .frame(
-                            width: min(720, geometry.size.width - 36),
-                            height: min(700, geometry.size.height - 36)
-                        )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .transition(.opacity)
-                .zIndex(100)
-            }
             if viewModel.isSmartCleaning {
                 SmartCleanCleaningOverlay()
                     .transition(.opacity)
@@ -206,6 +197,9 @@ struct ContentView: View {
         }
         .onChange(of: appActions.overviewScanRequest) { _ in
             handlePendingOverviewScan()
+        }
+        .onChange(of: viewModel.showingSmartCleanReview) { reviewing in
+            if reviewing { pageTravelDirection = 1 }
         }
         .onChange(of: appActions.deepScanRequest) { _ in
             handlePendingDeepScan()
@@ -327,6 +321,7 @@ struct ContentView: View {
     }
 
     private func openDestination(_ destination: WorkspaceDestination) {
+        viewModel.showingSmartCleanReview = false
         setPageTravel(toward: destination.group)
         withAnimation(navigationMotion) {
             returnToOverview = false

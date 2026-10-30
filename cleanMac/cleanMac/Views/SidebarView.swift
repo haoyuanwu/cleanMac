@@ -76,8 +76,8 @@ struct SidebarView: View {
     private func navigationButton(_ group: WorkspaceGroup, shortcut: Int) -> some View {
         Button { onSelect(group) } label: {
             ZStack {
-                Image(systemName: group.symbol)
-                    .font(.system(size: 21, weight: selectedGroup == group ? .semibold : .medium))
+                WorkspaceModuleIcon(group: group)
+                    .frame(width: 27, height: 27)
                     .foregroundStyle(selectedGroup == group ? Color.white : Color.primary)
             }
             .frame(width: 48, height: 48)

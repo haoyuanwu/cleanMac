@@ -1,5 +1,24 @@
 # Sidebar icons
 
+## Current module navigation
+
+The seven module navigation icons are original SwiftUI Canvas drawings in
+`cleanMac/Views/Components/WorkspaceModuleIcon.swift`, on a 24pt grid with 1.7pt
+rounded strokes. They inherit navigation colors and retain accessible module
+names, tooltips, focus feedback and keyboard shortcuts.
+
+| Module | Drawing |
+| --- | --- |
+| 一键清理 | Star inside a magnifying glass |
+| 垃圾清理 | Broom and sparkle |
+| 文件整理 | Layered folder and file lines |
+| 应用与开发 | App grid and code brackets |
+| 磁盘分析 | Partitioned disk |
+| 偏好与保护 | Shield and adjustment sliders |
+| 设备信息 | Monitor with a resource pulse |
+
+## Existing category assets
+
 The sidebar icons in `cleanMac/Assets.xcassets/Sidebar*.imageset` are from Iconfont. Most are from the [线性图标库 collection](https://www.iconfont.cn/collections/detail?cid=43240), created by 祁一吖. The trash and cleaned icons come from the [framework7 collection](https://www.iconfont.cn/collections/detail?cid=20048), created by tal007. All use their original 1024 × 1024 SVG paths and are rendered as template images so the app's existing colors still apply.
 
 | Asset | Iconfont name | Icon ID | Collection |

@@ -26,14 +26,17 @@ private struct NativeScanAnimation: View {
                 let scale = min(size.width / 480, size.height / 300)
                 context.translateBy(x: (size.width - 480 * scale) / 2, y: (size.height - 300 * scale) / 2)
                 context.scaleBy(x: scale, y: scale)
-                let time = reduceMotion || !isAnimating ? 1.2 : timeline.date.timeIntervalSince(startedAt)
+                let time = !isAnimating ? 0 : reduceMotion ? 1.2 : max(0, timeline.date.timeIntervalSince(startedAt))
                 let art = ScanIllustration(dark: colorScheme == .dark)
                 art.backdrop(&context)
                 switch style {
-                case .inspector: art.inspector(&context, time: time)
+                case .inspector: art.inspector(&context, time: time, scanning: isAnimating)
                 case .files: art.files(&context, time: time)
                 }
             }
+        }
+        .onChange(of: isAnimating) { active in
+            if active { startedAt = Date() }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -58,11 +61,13 @@ private struct ScanIllustration {
         circle(&context, x: 406, y: 178, radius: 3, color: .cyan.opacity(0.6))
     }
 
-    func inspector(_ context: inout GraphicsContext, time: Double) {
+    func inspector(_ context: inout GraphicsContext, time: Double, scanning: Bool) {
         // 文档围绕巡检路线排布，小巡检员的目光跟随放大镜。
-        document(&context, center: CGPoint(x: 133, y: 115), angle: -0.22, width: 52, checked: true, tint: .cyan)
-        document(&context, center: CGPoint(x: 235, y: 65), angle: 0.10, width: 48, checked: false, tint: .purple)
-        document(&context, center: CGPoint(x: 341, y: 105), angle: 0.20, width: 46, checked: true, tint: .pink)
+        var documents = context
+        documents.opacity = scanning ? min(1, time / 0.5) : 0
+        document(&documents, center: CGPoint(x: 133, y: 115), angle: -0.22, width: 52, checked: true, tint: .cyan)
+        document(&documents, center: CGPoint(x: 235, y: 65), angle: 0.10, width: 48, checked: false, tint: .purple)
+        document(&documents, center: CGPoint(x: 341, y: 105), angle: 0.20, width: 46, checked: true, tint: .pink)
 
         let bob = sin(time * 1.8) * 3
         var robot = context
@@ -77,7 +82,7 @@ private struct ScanIllustration {
         rounded(&robot, rect: CGRect(x: 177, y: 132, width: 128, height: 109), radius: 29, colors: [.cyan, .blue, .indigo])
         rounded(&robot, rect: CGRect(x: 189, y: 146, width: 104, height: 61), radius: 20,
                 colors: [Color(red: 0.08, green: 0.16, blue: 0.34), Color(red: 0.13, green: 0.12, blue: 0.32)])
-        let blink = time.truncatingRemainder(dividingBy: 5.2) < 0.16
+        let blink = time > 0.35 && time.truncatingRemainder(dividingBy: 5.2) < 0.16
         let look = sin(time * 0.95) * 3
         for x in [218.0, 264] {
             let rect = CGRect(x: x - 5 + look, y: blink ? 174 : 166, width: 10, height: blink ? 3 : 17)
