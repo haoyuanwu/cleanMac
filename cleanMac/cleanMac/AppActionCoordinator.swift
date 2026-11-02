@@ -22,13 +22,17 @@ final class AppActionCoordinator: ObservableObject {
 
     private init() {}
 
+    var isMainWindowReadyForBackgroundScan: Bool {
+        NSApp.isActive && mainWindow?.isVisible == true && mainWindow?.isKeyWindow == true
+    }
+
     func registerMainWindow(_ window: NSWindow) {
         guard mainWindow !== window else { return }
         if let mainWindowCloseObserver {
             NotificationCenter.default.removeObserver(mainWindowCloseObserver)
         }
         mainWindow = window
-        NSApp.setActivationPolicy(.regular)
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         let closingWindowID = ObjectIdentifier(window)
         mainWindowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,

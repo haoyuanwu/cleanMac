@@ -8,7 +8,7 @@ APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(git -C "$APP_ROOT" rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 if [[ "${1:-}" = --help || "${1:-}" = -h ]]; then
-  echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only|--ci-only]'
+  echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only|--ci-only|--replace-assets]'
   echo '先编写 docs/releases/v<版本号>.md，按 1、2、3 编号。'
   echo '--ci-only：本机工具链不可用时，仅在 GitHub Actions 中执行测试、构建与校验。'
   echo '可用 RELEASE_COMMIT_MESSAGE 覆盖默认中文提交信息。'
@@ -17,7 +17,7 @@ fi
 VERSION="${1:?请传入版本号，例如 1.0.8}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '错误：版本号必须为 x.y.z' >&2; exit 1; }
 MODE="${2:-}"
-[[ -z "$MODE" || "$MODE" = --wait-only || "$MODE" = --resume || "$MODE" = --ci-only ]] || { echo '错误：未知选项' >&2; exit 1; }
+[[ -z "$MODE" || "$MODE" = --wait-only || "$MODE" = --resume || "$MODE" = --ci-only || "$MODE" = --replace-assets ]] || { echo '错误：未知选项' >&2; exit 1; }
 TAG="v$VERSION"
 NOTES="$REPO_ROOT/docs/releases/$TAG.md"
 PROJECT="$APP_ROOT/cleanMac.xcodeproj/project.pbxproj"
@@ -32,6 +32,10 @@ print(match.group(1))
 PY
 )"
 PUSH_URL="git@github.com:$REPOSITORY.git"
+
+if [[ "$MODE" = --replace-assets ]]; then
+  exec bash "$APP_ROOT/Scripts/replace_release_assets.sh" "$VERSION"
+fi
 
 if [[ -z "$MODE" || "$MODE" = --ci-only ]]; then
   [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支发布' >&2; exit 1; }

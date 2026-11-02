@@ -2,11 +2,18 @@ import SwiftUI
 import AppKit
 
 private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
+    private var finishedLaunching = false
+    private var startedApplicationInventory = false
+    private var startupScanTask: Task<Void, Never>?
+    private var startupWindowObserver: NSObjectProtocol?
+
     // 红色关闭按钮只关闭主窗口；状态栏、监测与计划任务继续运行。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // 从 Finder 再次打开运行中的应用时，恢复主窗口和 Dock 图标。
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // 已有窗口时交给 AppKit 恢复焦点，避免重复强制激活干扰系统确认窗口。
+        if flag { return true }
         AppActionCoordinator.shared.requestMainWindow()
         return false
     }
@@ -21,7 +28,32 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
         ScheduledScanService.shared.start()
         NetworkSpeedStatusItem.shared.start()
         ResourceAlertPresenter.shared.start()
-        Task(priority: .utility) {
+        finishedLaunching = true
+        startupWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleApplicationInventory() }
+        }
+        scheduleApplicationInventory()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        scheduleApplicationInventory()
+    }
+
+    private func scheduleApplicationInventory() {
+        guard finishedLaunching, !startedApplicationInventory, startupScanTask == nil,
+              AppActionCoordinator.shared.isMainWindowReadyForBackgroundScan else { return }
+        startupScanTask = Task(priority: .utility) { [weak self] in
+            defer { self?.startupScanTask = nil }
+            // 首帧和系统确认先完成，失去前台焦点时等待下次就绪事件。
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard let self, AppActionCoordinator.shared.isMainWindowReadyForBackgroundScan else { return }
+            self.startedApplicationInventory = true
+            if let observer = self.startupWindowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                self.startupWindowObserver = nil
+            }
             await MainViewModel.shared.scanApplicationsOnStartup()
         }
     }
