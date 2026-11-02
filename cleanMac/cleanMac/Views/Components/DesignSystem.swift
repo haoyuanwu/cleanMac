@@ -992,3 +992,18 @@ extension View {
         modifier(GradientGlassCardModifier(cornerRadius: cornerRadius, enabled: enabled))
     }
 }
+
+/// 列表页的一行统计，避免摘要卡片挤占结果区域。
+struct CompactListMetric: View {
+    let title: String
+    let value: String
+    var tint: Color = .primary
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title).foregroundStyle(Theme.navigationSecondary)
+            Text(value).fontWeight(.semibold).foregroundStyle(tint).monospacedDigit()
+        }
+        .font(.system(size: 12)).fixedSize()
+        .accessibilityElement(children: .combine)
+    }
+}

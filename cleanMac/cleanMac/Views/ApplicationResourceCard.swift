@@ -6,13 +6,13 @@ struct ApplicationResourceView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
                     DeviceFeatureHeader(destination: .page(.applicationUsage), isRefreshing: monitor.isSampling) {
                         monitor.refresh()
                     }
-                    ApplicationResourceCard(listHeight: max(260, geometry.size.height - 300), showsHeader: false)
+                    ApplicationResourceCard(listHeight: max(260, geometry.size.height - 240), showsHeader: false)
                 }
-                .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 28)
+                .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 12)
                 .frame(maxWidth: 1080).frame(maxWidth: .infinity)
             }
         }

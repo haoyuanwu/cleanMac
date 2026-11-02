@@ -405,13 +405,13 @@ struct DeviceFeatureHeader: View {
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: destination.symbol)
-                .font(.system(size: 23, weight: .medium))
+                .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(destination.color)
-                .frame(width: 48, height: 48)
+                .frame(width: 36, height: 36)
                 .background(destination.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
-                Text(destination.title).font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(destination.title).font(.system(size: 18, weight: .bold, design: .rounded))
                 Text(destination.subtitle).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
             }
             Spacer(minLength: 12)

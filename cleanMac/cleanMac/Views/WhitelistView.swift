@@ -13,24 +13,13 @@ struct WhitelistView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 12) {
                 pageHeader
 
-                HStack(spacing: 12) {
-                    MetricTile(
-                        title: "白名单条目",
-                        value: "\(entries.count)",
-                        subtitle: "永不清理 / 卸载",
-                        gradient: Theme.accentGradient,
-                        compact: true
-                    )
-                    MetricTile(
-                        title: "占用合计",
-                        value: FileSizeFormatter.string(fromByteCount: totalSize),
-                        subtitle: isLoading ? "计算中…" : "文件与目录体积",
-                        gradient: Theme.warmGradient,
-                        compact: true
-                    )
+                HStack(spacing: 20) {
+                    CompactListMetric(title: "受保护路径", value: "\(entries.count)")
+                    CompactListMetric(title: isLoading ? "计算中" : "占用合计", value: FileSizeFormatter.string(fromByteCount: totalSize), tint: .orange)
+                    Spacer()
                 }
 
                 if isLoading && entries.isEmpty {
@@ -43,8 +32,8 @@ struct WhitelistView: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 40)
+            .padding(.top, 10)
+            .padding(.bottom, 16)
             .frame(maxWidth: 880)
             .frame(maxWidth: .infinity)
         }

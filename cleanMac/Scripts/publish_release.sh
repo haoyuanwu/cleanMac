@@ -8,15 +8,16 @@ APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(git -C "$APP_ROOT" rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 if [[ "${1:-}" = --help || "${1:-}" = -h ]]; then
-  echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only]'
+  echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only|--ci-only]'
   echo '先编写 docs/releases/v<版本号>.md，按 1、2、3 编号。'
+  echo '--ci-only：本机工具链不可用时，仅在 GitHub Actions 中执行测试、构建与校验。'
   echo '可用 RELEASE_COMMIT_MESSAGE 覆盖默认中文提交信息。'
   exit 0
 fi
 VERSION="${1:?请传入版本号，例如 1.0.8}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '错误：版本号必须为 x.y.z' >&2; exit 1; }
 MODE="${2:-}"
-[[ -z "$MODE" || "$MODE" = --wait-only || "$MODE" = --resume ]] || { echo '错误：未知选项' >&2; exit 1; }
+[[ -z "$MODE" || "$MODE" = --wait-only || "$MODE" = --resume || "$MODE" = --ci-only ]] || { echo '错误：未知选项' >&2; exit 1; }
 TAG="v$VERSION"
 NOTES="$REPO_ROOT/docs/releases/$TAG.md"
 PROJECT="$APP_ROOT/cleanMac.xcodeproj/project.pbxproj"
@@ -32,7 +33,7 @@ PY
 )"
 PUSH_URL="git@github.com:$REPOSITORY.git"
 
-if [[ -z "$MODE" ]]; then
+if [[ -z "$MODE" || "$MODE" = --ci-only ]]; then
   [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支发布' >&2; exit 1; }
   git diff --cached --quiet || { echo '错误：暂存区存在其他改动，请先处理后再发布' >&2; exit 1; }
   python3 - "$NOTES" "$COMMIT_MESSAGE" <<'PY'
@@ -77,10 +78,14 @@ print(f'版本 {version}，构建号 {build}')
 PY
   bash -n "$APP_ROOT/Scripts/make_dmg.sh" "$APP_ROOT/Scripts/publish_release.sh"
   git diff --check
-  echo '==> 运行核心模型和文件系统回归测试'
-  "$APP_ROOT/Scripts/test_p0.sh"
-  echo '==> 构建并自动校验 Apple Silicon 和 Intel 安装包'
-  BUILD_ARCH=all "$APP_ROOT/Scripts/make_dmg.sh"
+  if [[ "$MODE" = --ci-only ]]; then
+    echo '==> 云端构建模式：由 GitHub Actions 执行测试、双架构构建和安装包校验'
+  else
+    echo '==> 运行核心模型和文件系统回归测试'
+    "$APP_ROOT/Scripts/test_p0.sh"
+    echo '==> 构建并自动校验 Apple Silicon 和 Intel 安装包'
+    BUILD_ARCH=all "$APP_ROOT/Scripts/make_dmg.sh"
+  fi
   # 只暂存应用源码、设计资源、发布脚本、版本和说明；不包含 Xcode 用户状态及 build 产物。
   git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
   git add -f -- "$NOTES"

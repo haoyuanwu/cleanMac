@@ -122,6 +122,7 @@ class MainViewModel: ObservableObject {
     private var uninstallRuntimeSubscriptions = Set<AnyCancellable>()
     private var isWaitingForAppManagementSettings = false
     private var scanAllTask: Task<Void, Never>?
+    private var hasStartedApplicationInventory = false
     private let donationPromptShownKey = "donationPromptShownAfterFirstScan"
     
     // MARK: - 计算属性
@@ -227,6 +228,15 @@ class MainViewModel: ObservableObject {
     }
 
     // MARK: - Actions
+
+    /// 每次进程启动只预加载一次，复用用户已开始或已完成的应用扫描。
+    /// 仅更新应用类别，不改变首页扫描状态，也不弹出完成提示。
+    func scanApplicationsOnStartup() async {
+        guard !hasStartedApplicationInventory else { return }
+        hasStartedApplicationInventory = true
+        guard scanResults[.applications] == nil else { return }
+        await scanCategory(.applications)
+    }
 
     /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
     func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = false) async {

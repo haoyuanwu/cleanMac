@@ -122,9 +122,9 @@ struct DuplicateFilesView: View {
     private var headerBar: some View {
         HStack(spacing: 16) {
             Image(systemName: "doc.on.doc.fill")
-                .font(.system(size: 20))
+                .font(.system(size: 17))
                 .foregroundColor(.white)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(
@@ -163,30 +163,16 @@ struct DuplicateFilesView: View {
             }
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
 
     }
 
     private var metricsBar: some View {
-        HStack(spacing: 12) {
-            MetricTile(
-                title: "重复组",
-                value: "\(groups.count)",
-                subtitle: "展开可查看副本",
-                gradient: Theme.accentGradient,
-                compact: true
-            )
-            MetricTile(
-                title: "冗余逻辑大小",
-                value: FileSizeFormatter.string(fromByteCount: totalWasted),
-                subtitle: "保留一份后的冗余",
-                gradient: Theme.warmGradient,
-                compact: true
-            )
-        }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 12)
-
+        HStack(spacing: 18) {
+            CompactListMetric(title: "重复组", value: "\(groups.count)")
+            CompactListMetric(title: "冗余逻辑大小", value: FileSizeFormatter.string(fromByteCount: totalWasted), tint: .orange)
+            Spacer()
+        }.padding(.horizontal, 22).padding(.bottom, 8)
     }
 
     // MARK: - 折叠分组

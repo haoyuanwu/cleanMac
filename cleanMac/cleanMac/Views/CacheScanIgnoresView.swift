@@ -13,18 +13,21 @@ struct CacheScanIgnoresView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("自动忽略的扫描路径").font(.system(size: 20, weight: .bold))
-                    Text("完整扫描后未发现缓存的目录，会暂时跳过以加快后续扫描。")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Menu {
+                    Text("完整扫描未发现缓存的目录会暂时跳过。")
+                    Text("记录最长有效 24 小时，目录变化时提前复查。")
+                    Text("恢复后，下次扫描会重新检查。")
+                } label: { Image(systemName: "info.circle") }
+                    .menuStyle(.borderlessButton).fixedSize().help("自动忽略说明")
+                    .accessibilityLabel("自动忽略说明")
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            Label("记录最长有效 24 小时，目录本身变化时提前复查；恢复后，下次扫描会重新检查。", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
             HStack {
                 TextField("搜索软件名称或路径", text: $searchText)
                     .textFieldStyle(.roundedBorder)
@@ -91,7 +94,7 @@ struct CacheScanIgnoresView: View {
                 }
             }
         }
-        .padding(24)
+        .padding(16)
         .frame(width: 700, height: 520)
         .background(Theme.canvas)
         .task { reload() }

@@ -9,7 +9,7 @@ struct XcodeAnalysisView: View {
     var body: some View {
         GeometryReader { viewport in
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
                     pageHeader
 
                     if viewModel.isScanning {
@@ -25,8 +25,8 @@ struct XcodeAnalysisView: View {
                 }
                 .frame(maxWidth: 920)
                 .padding(.horizontal, 28)
-                .padding(.top, 18)
-                .padding(.bottom, 40)
+                .padding(.top, 10)
+                .padding(.bottom, 16)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -56,7 +56,7 @@ struct XcodeAnalysisView: View {
                 .scaledToFit()
                 .foregroundColor(.white)
                 .frame(width: 22, height: 22)
-                .frame(width: 48, height: 48)
+                .frame(width: 36, height: 36)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(
@@ -94,28 +94,11 @@ struct XcodeAnalysisView: View {
 
     // MARK: - 汇总
     private func summarySection(_ result: XcodeAnalysisResult) -> some View {
-        HStack(spacing: 12) {
-            MetricTile(
-                title: "已分析空间",
-                value: FileSizeFormatter.string(fromByteCount: result.totalSize),
-                subtitle: "Xcode 相关占用",
-                gradient: Theme.accentGradient,
-                compact: true
-            )
-            MetricTile(
-                title: "文件与文件夹",
-                value: "\(result.artifacts.count)",
-                subtitle: "扫描到的条目",
-                gradient: Theme.successGradient,
-                compact: true
-            )
-            MetricTile(
-                title: "插件与扩展",
-                value: "\(result.pluginCount)",
-                subtitle: "编辑器扩展",
-                gradient: Theme.warmGradient,
-                compact: true
-            )
+        HStack(spacing: 20) {
+            CompactListMetric(title: "已分析", value: FileSizeFormatter.string(fromByteCount: result.totalSize), tint: .orange)
+            CompactListMetric(title: "文件与文件夹", value: "\(result.artifacts.count)")
+            CompactListMetric(title: "插件与扩展", value: "\(result.pluginCount)")
+            Spacer()
         }
     }
 

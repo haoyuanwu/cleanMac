@@ -21,6 +21,9 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
         ScheduledScanService.shared.start()
         NetworkSpeedStatusItem.shared.start()
         ResourceAlertPresenter.shared.start()
+        Task(priority: .utility) {
+            await MainViewModel.shared.scanApplicationsOnStartup()
+        }
     }
 }
 

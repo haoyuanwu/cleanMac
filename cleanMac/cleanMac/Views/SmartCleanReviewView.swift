@@ -29,14 +29,12 @@ struct SmartCleanReviewView: View {
         let hiddenSelected = selectedPaths.intersection(Set(plan.items.map(\.path))).subtracting(visiblePaths).count
         VStack(alignment: .leading, spacing: 0) {
             header
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("检查清理清单").font(.system(size: 24, weight: .bold, design: .rounded))
                     Spacer()
                     Text("推荐 \(plan.items.count) 项").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
                 }
-                Text("按分类展开检查项目，保留你需要的内容。")
-                    .font(.system(size: 13)).foregroundStyle(Theme.navigationSecondary)
                 filters
                 HStack(spacing: 16) {
                     Toggle("全选当前结果", isOn: Binding(
@@ -55,7 +53,7 @@ struct SmartCleanReviewView: View {
                     Button("恢复推荐勾选") { selectedPaths = Set(plan.items.map(\.path)) }
                         .buttonStyle(.plain).help("重新选择本次扫描的全部推荐项目")
                 }.font(.system(size: 12))
-            }.padding(.horizontal, 28).padding(.bottom, 16)
+            }.padding(.horizontal, 28).padding(.bottom, 10)
 
             ScrollView {
                 LazyVStack(spacing: 10) {
@@ -142,7 +140,7 @@ struct SmartCleanReviewView: View {
             Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Theme.navigationSecondary).accessibilityHidden(true)
             Text("智能一键清理").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.navigationSecondary)
             Spacer()
-        }.padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 18)
+        }.padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 10)
     }
 
     private var filters: some View {
@@ -303,8 +301,8 @@ struct SmartCleanReviewView: View {
             }
             Text("项目将移到废纸篓，可在设置的清理记录中恢复；清空废纸篓后才可能释放空间。")
                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary).fixedSize(horizontal: false, vertical: true)
-        }.padding(18).gradientGlass(cornerRadius: 18)
-            .padding(.horizontal, 28).padding(.bottom, 20).padding(.top, 8)
+        }.padding(12).gradientGlass(cornerRadius: 18)
+            .padding(.horizontal, 28).padding(.bottom, 10).padding(.top, 6)
     }
 
     private func selectionToggle(name: String, count: Int, total: Int, set: @escaping (Bool) -> Void) -> some View {

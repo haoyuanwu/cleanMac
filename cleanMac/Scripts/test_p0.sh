@@ -5,11 +5,12 @@ cd "$(dirname "$0")/.."
 P0_TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/cleanmac-p0-tests.XXXXXX")
 trap 'rm -rf "$P0_TEST_DIR"' EXIT
 P0_XCODE_DIR=$(xcode-select -p)
+P0_SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
 P0_PLATFORM_DIR="$P0_XCODE_DIR/Platforms/MacOSX.platform/Developer"
 P0_FRAMEWORK_DIR="$P0_PLATFORM_DIR/Library/Frameworks"
 P0_LIBRARY_DIR="$P0_PLATFORM_DIR/usr/lib"
 
-swiftc -emit-library -emit-module -enable-testing -module-name cleanMac \
+xcrun --sdk macosx swiftc -sdk "$P0_SDK_PATH" -emit-library -emit-module -enable-testing -module-name cleanMac \
   -emit-module-path "$P0_TEST_DIR/cleanMac.swiftmodule" -o "$P0_TEST_DIR/libcleanMac.dylib" \
   cleanMac/Models/{FileItem,FileStorageMeasurement,CacheRuleCatalog,CacheApplication,BrowserCacheApplication,ScanCategory,ScanDiagnostics,ScanResult,LocalInspection,ApplicationResourceUsage,DeviceTelemetry}.swift \
   cleanMac/Helpers/{FileHelper,FileSizeFormatter}.swift \
@@ -32,7 +33,7 @@ suite.run()
 guard let result = suite.testRun, result.executionCount == 138, result.totalFailureCount == 0 else { exit(1) }
 SWIFT
 
-swiftc -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \
+xcrun --sdk macosx swiftc -sdk "$P0_SDK_PATH" -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \
   -F "$P0_FRAMEWORK_DIR" \
   -Xlinker -rpath -Xlinker "$P0_TEST_DIR" \
   -Xlinker -rpath -Xlinker "$P0_FRAMEWORK_DIR" \

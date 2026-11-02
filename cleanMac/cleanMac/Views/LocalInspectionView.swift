@@ -39,14 +39,16 @@ struct LocalInspectionView: View {
             }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(tint)
-                    .frame(width: 44, height: 44).background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                    .frame(width: 34, height: 34).background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.system(size: 22, weight: .bold))
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                    Text(title).font(.system(size: 18, weight: .bold))
+                    if session.report == nil {
+                        Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                    }
                 }
                 Spacer(minLength: 8)
                 if kind == .startup { Button("系统登录项设置", action: openSettings) }
@@ -112,7 +114,7 @@ struct LocalInspectionView: View {
             }
             Text(kind == .startup ? "仅已确认软件归属的第三方用户 LaunchAgent 可更改下次加载策略；其他启动项在系统设置管理。签名不用于判定恶意。" : "只读检查 · 不加载插件或清除隐私数据 · 不上传本机数据")
                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
-        }.padding(24)
+        }.padding(.horizontal, 22).padding(.vertical, 12)
             .onDisappear { session.scanTask?.cancel() }
             .alert("更改启动策略", isPresented: Binding(get: { pendingStartup != nil }, set: { if !$0 { pendingStartup = nil } })) {
                 Button("取消", role: .cancel) { pendingStartup = nil }

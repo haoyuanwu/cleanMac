@@ -14,7 +14,7 @@ enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
     case applications = "应用程序"
     case installers = "安装包"
 
-    /// 概览只汇总垃圾清理类；文件整理与应用管理在各自页面按需扫描。
+    /// 概览只汇总垃圾清理类；应用列表启动时后台预加载，文件整理按需扫描。
     static let overviewScanCategories: [ScanCategory] = [
         .systemCache, .applicationCache, .browserCache, .logFiles, .appLeftover, .trash
     ]

@@ -81,7 +81,7 @@ struct DiskMapView: View {
     private var isCurrentLoading: Bool { current.map { session.loadingPaths.contains($0.path) } ?? false }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             header
             if let current {
                 pathBar
@@ -102,8 +102,8 @@ struct DiskMapView: View {
             }
         }
         .padding(.horizontal, 22)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
         .frame(minWidth: 640, minHeight: 560)
 
         .navigationTitle("")

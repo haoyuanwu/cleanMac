@@ -14,6 +14,7 @@ struct CategoryDetailView: View {
     @State private var selectedFiles = Set<FileItem.ID>()
     @State private var showingEmptyTrashConfirmation = false
     @State private var showingDiagnostics = false
+    @State private var showingSpaceDetails = false
     @State private var previewImage: FileItem?
     @State private var appearProgress: CGFloat = 0
     @FocusState private var isSearchFocused: Bool
@@ -148,24 +149,6 @@ struct CategoryDetailView: View {
             VStack(spacing: 0) {
                 if result?.isScanning != true {
                     headerBar
-                    if let result, !result.items.isEmpty || !result.overlappingItems.isEmpty {
-                        DisclosureGroup("空间统计与扫描说明") {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("磁盘占用 \(result.allocatedSize.map { FileSizeFormatter.string(fromByteCount: $0) } ?? "未完整获取") · 已识别云端占位 \(result.cloudPlaceholderCount) 个")
-                                Text("磁盘占用为元数据估算，APFS 共享块、快照和废纸篓会影响实际释放量。")
-                                if !result.overlappingItems.isEmpty { Text("另有 \(result.overlappingItems.count) 项已归属其他类别，此处不重复统计。") }
-                                if category == .applicationCache {
-                                    if let comparison = viewModel.applicationCacheComparison {
-                                        Text(comparison.description)
-                                        Text("复用 \(comparison.reusedRoots) 个目录 · 重扫 \(comparison.rescannedRoots) 个目录；复用前已校验规则、身份、权限、变化版本与元数据。")
-                                    }
-                                    if let error = CacheScanIndex.shared.persistenceError { Text(error) }
-                                }
-                            }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary).padding(.top, 6)
-                        }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
-                            .padding(.horizontal, 22).padding(.bottom, 12)
-                    }
-
                 }
 
                 if let result = result {
@@ -280,11 +263,35 @@ struct CategoryDetailView: View {
             }
 
             if let result = result, !result.items.isEmpty {
-                MetricPill(title: "逻辑大小", value: result.totalSizeFormatted, color: .orange)
-                MetricPill(title: "\(category.itemUnit)数", value: "\(result.itemCount)")
+                CompactListMetric(title: "逻辑大小", value: result.totalSizeFormatted, tint: .orange)
+                CompactListMetric(title: "\(category.itemUnit)数", value: "\(result.itemCount)")
             }
 
             Spacer(minLength: 12)
+            if let result, !result.items.isEmpty || !result.overlappingItems.isEmpty {
+                Button { showingSpaceDetails.toggle() } label: {
+                    Image(systemName: "chart.bar.doc.horizontal").frame(width: 28, height: 28)
+                }.buttonStyle(.plain).foregroundStyle(Theme.navigationSecondary)
+                    .help("空间统计与扫描说明").accessibilityLabel("空间统计与扫描说明")
+                    .popover(isPresented: $showingSpaceDetails, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("空间统计与扫描说明").font(.system(size: 14, weight: .semibold))
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("磁盘占用 \(result.allocatedSize.map { FileSizeFormatter.string(fromByteCount: $0) } ?? "未完整获取") · 已识别云端占位 \(result.cloudPlaceholderCount) 个")
+                                Text("磁盘占用为元数据估算，APFS 共享块、快照和废纸篓会影响实际释放量。")
+                                if !result.overlappingItems.isEmpty { Text("另有 \(result.overlappingItems.count) 项已归属其他类别，此处不重复统计。") }
+                                if category == .applicationCache {
+                                    if let comparison = viewModel.applicationCacheComparison {
+                                        Text(comparison.description)
+                                        Text("复用 \(comparison.reusedRoots) 个目录 · 重扫 \(comparison.rescannedRoots) 个目录；复用前已校验规则、身份、权限、变化版本与元数据。")
+                                    }
+                                    if let error = CacheScanIndex.shared.persistenceError { Text(error) }
+                                }
+                            }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }.padding(18).frame(width: 360, alignment: .leading)
+                    }
+            }
             if result?.diagnostics != nil {
                 Button { showingDiagnostics = true } label: { Image(systemName: "info.circle") }
                     .buttonStyle(.plain)
@@ -328,7 +335,7 @@ struct CategoryDetailView: View {
             }
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
     }
     
     @ViewBuilder
@@ -545,7 +552,7 @@ struct CategoryDetailView: View {
 
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 12)
+            .padding(.vertical, 6)
 
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
@@ -603,60 +610,28 @@ struct CategoryDetailView: View {
 
     // MARK: - 大文件时间线
     private var timelineBar: some View {
-        let groups = FileTimeline.group(sortedFiles)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("时间线")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("按修改时间分层")
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.8))
-            }
-
+        // 始终按本轮完整结果生成入口，切换时间筛选后仍能直接选择其他分层。
+        let groups = FileTimeline.group(result?.items ?? [])
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                Label("修改时间", systemImage: "clock").foregroundStyle(Theme.navigationSecondary)
+                Button("全部") { ageFilter = nil }
+                    .buttonStyle(.bordered).tint(ageFilter == nil ? .accentColor : .secondary)
                 ForEach(groups, id: \.bucket) { group in
                     Button {
-                        withAnimation(Theme.spring) {
-                            if ageFilter == group.bucket {
-                                ageFilter = nil
-                            } else {
-                                ageFilter = group.bucket
-                            }
-                        }
+                        ageFilter = ageFilter == group.bucket ? nil : group.bucket
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Circle().fill(bucketColor(group.bucket)).frame(width: 5, height: 5)
                             Text(group.bucket.rawValue)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(ageFilter == group.bucket ? .accentColor : .secondary)
-                            Text(FileSizeFormatter.string(fromByteCount: group.totalSize))
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .monospacedDigit()
-                            Text("\(group.items.count) 项")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                            ProportionBar(
-                                progress: sortedFiles.isEmpty ? 0 : Double(group.totalSize) / Double(max(1, sortedFiles.reduce(Int64(0)) { $0 + $1.size })),
-                                gradient: Theme.categoryGradient(bucketColor(group.bucket)),
-                                height: 4
-                            )
+                            Text("\(group.items.count) 项 · \(FileSizeFormatter.string(fromByteCount: group.totalSize))")
+                                .foregroundStyle(Theme.navigationSecondary).monospacedDigit()
                         }
-                        .padding(10)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(ageFilter == group.bucket
-                                      ? AnyShapeStyle(Theme.accentGradientSoft)
-                                      : AnyShapeStyle(Theme.inlineSurface))
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.bordered).tint(ageFilter == group.bucket ? .accentColor : .secondary)
+                        .accessibilityAddTraits(ageFilter == group.bucket ? .isSelected : [])
                 }
-            }
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 12)
+            }.font(.system(size: 12)).padding(.vertical, 2)
+        }.padding(.horizontal, 22).padding(.top, 2).padding(.bottom, 4)
     }
 
     private func bucketColor(_ bucket: FileAgeBucket) -> Color {
