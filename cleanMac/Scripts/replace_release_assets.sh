@@ -57,7 +57,7 @@ git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/Design" "$APP_ROOT/Scripts" "$APP_ROO
 git add -f -- "$NOTES"
 git diff --cached --check
 git commit -m "更新 $TAG 安装包：延迟启动扫描并减少窗口焦点干扰（构建 ${BUILD}）"
-git tag -a "$BUILD_TAG" -m "cleanMac $VERSION 构建 $BUILD：既有版本安装包更新"
+git tag -a "$BUILD_TAG" -m "cleanMac $VERSION 构建 ${BUILD}：既有版本安装包更新"
 git push --atomic "$PUSH_URL" HEAD:refs/heads/main "refs/tags/$BUILD_TAG:refs/tags/$BUILD_TAG"
 echo '==> 替换当前 Release 的两个安装包并同步说明'
 gh release upload "$TAG" "$APP_ROOT/build/cleanMac-arm64.dmg" "$APP_ROOT/build/cleanMac-x86_64.dmg" --clobber --repo "$REPOSITORY"
