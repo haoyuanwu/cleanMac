@@ -35,12 +35,12 @@ nonisolated enum LocalSpaceInsights {
                 evidence: ["候选按相同大小及分段哈希匹配，未保证整文件逐字节相同。", "哈希线索：\(group.hash)", "保留一份后的冗余逻辑大小，不代表 APFS 精确释放量。"], paths: files.map(\.path)))
         }
         if let result = results[.largeFiles], !result.isScanning, !result.isCleaned, result.diagnostics?.status != .cancelled {
-            for file in result.items.sorted(by: { $0.size > $1.size }).prefix(30) where !file.isDirectory && file.size >= 100 * 1024 * 1024 && eligible(file) {
+            for file in result.items.sorted(by: { $0.size > $1.size }).prefix(30) where !file.isDirectory && eligible(file) {
                 let access = accessDates?[file.path] ?? (accessDates == nil ? (try? URL(fileURLWithPath: file.path).resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate : nil)
                 let date = access ?? file.modificationDate
                 guard let date, date <= now, now.timeIntervalSince(date) >= 180 * 86400 else { continue }
                 suggestions.append(SpaceInsight(id: "old:" + file.path,
-                    title: access == nil ? "修改时间较早的大文件" : "较久未记录访问的大文件",
+                    title: access == nil ? "修改时间较早的文件" : "较久未记录访问的文件",
                     detail: file.name + "；保留、归档或删除请按实际用途决定。", logicalBytes: file.size,
                     evidence: ["\(access == nil ? "修改" : "访问")时间：\(date.formatted())", "超过 180 天；文件系统时间可能未更新，不能证明实际未使用。", "依据已扫描的大文件快照生成，不自动操作文件。"], paths: [file.path]))
                 if suggestions.filter({ $0.id.hasPrefix("old:") }).count >= 5 { break }

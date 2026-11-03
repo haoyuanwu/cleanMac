@@ -148,12 +148,13 @@ enum ApplicationCacheScanner {
     ) -> [FileItem] {
         var items: [FileItem] = []
         var includedPaths = Set<String>()
-        ignoreStore?.prepare(for: catalog.fingerprint)
+        // 扫描口径变化时作废旧的“无缓存”记录和增量结果，避免空缓存继续被隐藏。
+        let rulesHash = catalog.fingerprint + ":all-sizes-v1"
+        ignoreStore?.prepare(for: rulesHash)
         let revision = ignoreStore?.revision ?? 0
         var emptyRoots: [CacheScanIgnoreStore.Record] = []
         var rescannedPaths = Set<String>()
         var reused = 0, refreshed = 0
-        let rulesHash = catalog.fingerprint
         // 先处理父路径；命中缓存目录后不再收集其子缓存，避免重复计数和删除。
         for root in roots.sorted(by: { $0.url.path.count < $1.url.path.count }) {
             if Task.isCancelled { break }
@@ -247,7 +248,7 @@ enum ApplicationCacheScanner {
             ignoreStore?.apply(emptyRoots: emptyRoots, rescannedPaths: rescannedPaths, expectedRevision: revision)
         }
         let complete = !Task.isCancelled && (ScanContext.diagnostics?.snapshot(finished: true).status ?? .complete) == .complete
-        if monitor == nil || CacheRuleStore.shared.activeCatalog.fingerprint == rulesHash {
+        if monitor == nil || CacheRuleStore.shared.activeCatalog.fingerprint == catalog.fingerprint {
             index?.finish(items: items, complete: complete, reused: reused, rescanned: refreshed,
                           liveRoots: Set(roots.map { $0.url.path }), rules: rulesHash)
         }
@@ -264,7 +265,6 @@ enum ApplicationCacheScanner {
               type == .typeDirectory || type == .typeRegular else { return }
         let isDirectory = type == .typeDirectory
         let size = isDirectory ? FileHelper.directorySize(path) : (attributes[.size] as? Int64 ?? 0)
-        guard size > 0 else { return }
         var item = FileItem(path: path, name: url.lastPathComponent, size: size,
                             modificationDate: attributes[.modificationDate] as? Date, isDirectory: isDirectory)
         item.cacheApplication = owner

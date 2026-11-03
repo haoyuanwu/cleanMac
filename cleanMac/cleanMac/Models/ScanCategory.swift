@@ -66,7 +66,7 @@ enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
         case .trash: return "清空废纸篓中所有文件"
         case .appLeftover: return "查找已卸载应用留下的数据文件夹"
         case .downloads: return "清理下载文件夹中的文件"
-        case .largeFiles: return "扫描磁盘上占用大量空间的文件"
+        case .largeFiles: return "按大小排序查看文件，包含小文件和空文件"
         case .applications: return "管理已安装的应用程序"
         case .installers: return "清理 .pkg、.dmg、.apk、.exe 等安装包文件"
         }

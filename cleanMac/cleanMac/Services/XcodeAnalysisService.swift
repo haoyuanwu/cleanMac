@@ -2,7 +2,11 @@ import Foundation
 
 final class XcodeAnalysisService: @unchecked Sendable {
     nonisolated(unsafe) private let fileManager = FileManager.default
-    nonisolated(unsafe) private let home = FileManager.default.homeDirectoryForCurrentUser.path
+    nonisolated private let home: String
+
+    nonisolated init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        home = homeDirectory.path
+    }
 
     func analyze() async -> XcodeAnalysisResult {
         await Task.detached(priority: .utility) { [self] in
@@ -67,7 +71,6 @@ final class XcodeAnalysisService: @unchecked Sendable {
         let size = type == .typeDirectory
             ? FileHelper.directorySize(path)
             : (attributes[.size] as? Int64) ?? 0
-        guard size > 0 else { return nil }
 
         let displayName: String
         if kind == .simulatorDevices,

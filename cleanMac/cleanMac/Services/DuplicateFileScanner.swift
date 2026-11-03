@@ -19,7 +19,6 @@ enum DuplicateFileScanner {
     /// 在给定根目录下扫描重复文件
     static func findDuplicates(
         roots: [String],
-        minSize: Int64 = 1_000_000,
         limitPerRoot: Int = 4000
     ) async -> [DuplicateGroup] {
         let worker = Task.detached(priority: .userInitiated) { () -> [DuplicateGroup] in
@@ -42,7 +41,6 @@ enum DuplicateFileScanner {
                     let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
                     guard values?.isRegularFile == true else { continue }
                     let size = Int64(values?.fileSize ?? 0)
-                    guard size >= minSize else { continue }
                     scanned += 1
                     candidatesBySize[size, default: []].append(
                         (url.path, url.lastPathComponent, values?.contentModificationDate)

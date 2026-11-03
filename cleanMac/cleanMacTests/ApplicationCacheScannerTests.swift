@@ -184,7 +184,7 @@ final class ApplicationCacheScannerTests: XCTestCase {
         XCTAssertTrue(store.allRecords.isEmpty)
     }
 
-    func testEmptyCacheRootsCanBeIgnoredButMissingRootsCannot() throws {
+    func testEmptyCacheFoldersRemainVisibleAndMissingRootsAreNotIgnored() throws {
         let suite = "cleanMac.ignore-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -195,8 +195,10 @@ final class ApplicationCacheScannerTests: XCTestCase {
             ApplicationCacheScanner.DataRoot(url: $0, owner: application, isCacheRoot: false)
         }
         let now = Date()
-        XCTAssertTrue(ApplicationCacheScanner.cacheItems(in: roots, ignoreStore: store, now: now).isEmpty)
-        XCTAssertEqual(store.allRecords.map(\.path), [root.path])
+        let items = ApplicationCacheScanner.cacheItems(in: roots, ignoreStore: store, now: now)
+        XCTAssertEqual(items.map(\.path), [root.appendingPathComponent("Cache").path])
+        XCTAssertEqual(items.first?.size, 0)
+        XCTAssertTrue(store.allRecords.isEmpty)
         _ = try write("Support/EmptyCache/Cache/new.bin")
         let later = now.addingTimeInterval(CacheScanIgnoreStore.lifetime + 1)
         XCTAssertEqual(ApplicationCacheScanner.cacheItems(in: roots, ignoreStore: store, now: later).count, 1)

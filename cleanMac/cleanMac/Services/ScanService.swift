@@ -9,7 +9,11 @@ struct TrashScanOutcome: Sendable {
 /// 文件扫描服务
 final class ScanService: @unchecked Sendable {
     nonisolated private let fileManager = ScanFileAccess()
-    nonisolated(unsafe) private let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+    nonisolated private let homeDir: String
+
+    nonisolated init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        homeDir = homeDirectory.path
+    }
     
     // MARK: - 系统缓存扫描
     func scanSystemCache() async -> [FileItem] {
@@ -26,7 +30,7 @@ final class ScanService: @unchecked Sendable {
             ]
             
             for path in paths {
-                let entries = self.scanCacheEntries(in: path, minSize: 1024 * 100, excluding: applicationRoots)
+                let entries = self.scanCacheEntries(in: path, excluding: applicationRoots)
                 if path == "\(self.homeDir)/Library/Caches" {
                     // 浏览器缓存在独立类别统计，避免概览重复计算同一目录。
                     let browserRoots: Set<String> = [
@@ -187,15 +191,28 @@ final class ScanService: @unchecked Sendable {
         await ScanTask.run { [weak self] in
             guard let self else { return [] }
             let downloadsPath = "\(self.homeDir)/Downloads"
-            return self.scanDirectory(downloadsPath, minSize: 1024 * 1024)
+            // 只列出直属项目，文件夹整体统计大小，不把其内部文件重复列为清理项。
+            guard let names = try? self.fileManager.contentsOfDirectory(atPath: downloadsPath) else { return [] }
+            var items: [FileItem] = []
+            for name in names {
+                if Task.isCancelled { break }
+                let path = (downloadsPath as NSString).appendingPathComponent(name)
+                guard let attributes = try? self.fileManager.attributesOfItem(atPath: path),
+                      let type = attributes[.type] as? FileAttributeType else { continue }
+                let isDirectory = type == .typeDirectory
+                let size = isDirectory ? FileHelper.directorySize(path) : (attributes[.size] as? Int64 ?? 0)
+                items.append(FileItem(path: path, name: name, size: size,
+                                      modificationDate: attributes[.modificationDate] as? Date,
+                                      isDirectory: isDirectory))
+            }
+            return items.sorted { $0.size > $1.size }
         }
     }
     
     // MARK: - 大文件扫描
-    func scanLargeFiles(minSizeMB: Int = 100) async -> [FileItem] {
+    func scanLargeFiles() async -> [FileItem] {
         await ScanTask.run { [weak self] in
             guard let self else { return [] }
-            let minSize = Int64(minSizeMB) * 1024 * 1024
             var items: [FileItem] = []
             
             let searchPaths = [
@@ -208,10 +225,10 @@ final class ScanService: @unchecked Sendable {
             ]
             
             for path in searchPaths {
-                items.append(contentsOf: self.scanDirectory(path, minSize: minSize))
+                items.append(contentsOf: self.scanDirectory(path))
             }
             
-            return Array(items.sorted { $0.size > $1.size }.prefix(100))
+            return items.sorted { $0.size > $1.size }
         }
     }
     
@@ -309,7 +326,7 @@ final class ScanService: @unchecked Sendable {
     // MARK: - 私有方法
 
     /// 缓存根目录按一级项目展示；文件夹计入其内容，避免与内部文件重复统计。
-    nonisolated private func scanCacheEntries(in path: String, minSize: Int64, excluding excludedPaths: [String] = []) -> [FileItem] {
+    nonisolated private func scanCacheEntries(in path: String, excluding excludedPaths: [String] = []) -> [FileItem] {
         guard let names = try? fileManager.contentsOfDirectory(atPath: path) else { return [] }
         var items: [FileItem] = []
         for name in names {
@@ -320,11 +337,10 @@ final class ScanService: @unchecked Sendable {
                   type == .typeDirectory || type == .typeRegular else { continue }
             let isDirectory = type == .typeDirectory
             if isDirectory && excludedPaths.contains(where: { $0.hasPrefix(fullPath + "/") }) {
-                items.append(contentsOf: scanCacheEntries(in: fullPath, minSize: minSize, excluding: excludedPaths))
+                items.append(contentsOf: scanCacheEntries(in: fullPath, excluding: excludedPaths))
                 continue
             }
             let size = isDirectory ? FileHelper.directorySize(fullPath) : (attributes[.size] as? Int64 ?? 0)
-            guard size >= minSize else { continue }
             items.append(FileItem(path: fullPath, name: name, size: size,
                                   modificationDate: attributes[.modificationDate] as? Date, isDirectory: isDirectory))
         }
@@ -371,7 +387,6 @@ final class ScanService: @unchecked Sendable {
         guard let attributes = try? fileManager.attributesOfItem(atPath: path),
               (attributes[.type] as? FileAttributeType) == .typeDirectory else { return nil }
         let size = FileHelper.directorySize(path)
-        guard size > 0 else { return nil }
         return FileItem(
             path: path,
             name: (path as NSString).lastPathComponent,
@@ -426,7 +441,7 @@ final class ScanService: @unchecked Sendable {
     }
     
     /// 扫描目录
-    nonisolated private func scanDirectory(_ path: String, minSize: Int64 = 0, extensions: [String]? = nil) -> [FileItem] {
+    nonisolated private func scanDirectory(_ path: String, extensions: [String]? = nil) -> [FileItem] {
         guard fileManager.fileExists(atPath: path) else { return [] }
         
         var items: [FileItem] = []
@@ -448,7 +463,6 @@ final class ScanService: @unchecked Sendable {
                 guard extensions.contains(ext) else { continue }
             }
             
-            guard size >= minSize else { continue }
             
             let item = FileItem(
                 path: fullPath,
