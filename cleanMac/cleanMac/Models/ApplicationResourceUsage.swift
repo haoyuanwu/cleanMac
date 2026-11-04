@@ -1,5 +1,55 @@
 import Foundation
+import AppKit
 import Darwin
+
+nonisolated enum ResourceApplicationInventory {
+    static func includes(path: String, policy: NSApplication.ActivationPolicy) -> Bool {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard url.pathExtension.lowercased() == "app",
+              !url.deletingLastPathComponent().pathComponents.contains(where: { $0.lowercased().hasSuffix(".app") }) else { return false }
+        if policy == .regular { return true }
+        // 菜单栏应用也属于运行软件；系统代理和应用内的辅助进程继续合并或排除。
+        return policy == .accessory && !["/System/", "/usr/", "/Library/Apple/"].contains(where: url.path.hasPrefix)
+    }
+
+    static func processLaunchDate(pid: Int32) -> Date? {
+        var bsd = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, size) == size,
+              bsd.pbi_uid == getuid(), bsd.pbi_start_tvsec > 0 else { return nil }
+        return Date(timeIntervalSince1970: Double(bsd.pbi_start_tvsec) + Double(bsd.pbi_start_tvusec) / 1_000_000)
+    }
+
+    static func isRunning(pid: Int32, launchDate: Date? = nil) -> Bool {
+        guard pid > 0 else { return false }
+        var bsd = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, size) == size {
+            guard bsd.pbi_status != UInt32(SZOMB) else { return false }
+            if let launchDate {
+                let current = Date(timeIntervalSince1970: Double(bsd.pbi_start_tvsec) + Double(bsd.pbi_start_tvusec) / 1_000_000)
+                return current == launchDate
+            }
+            return true
+        }
+        // 权限不足不等于进程已退出；signal 0 仅检查存在性，不发送结束信号。
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    @MainActor static func descriptor(for app: NSRunningApplication) -> ResourceAppDescriptor? {
+        guard !app.isTerminated, isRunning(pid: app.processIdentifier),
+              let path = app.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path,
+              includes(path: path, policy: app.activationPolicy),
+              let id = app.bundleIdentifier,
+              let date = processLaunchDate(pid: app.processIdentifier) ?? app.launchDate else { return nil }
+        return ResourceAppDescriptor(pid: app.processIdentifier, launchDate: date, bundleID: id,
+            name: app.localizedName ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent, path: path)
+    }
+
+    @MainActor static func runningApplications() -> [ResourceAppDescriptor] {
+        NSWorkspace.shared.runningApplications.compactMap { descriptor(for: $0) }
+    }
+}
 
 nonisolated struct ResourceAppDescriptor: Sendable, Identifiable {
     let pid: Int32
@@ -71,8 +121,9 @@ nonisolated enum ApplicationResourceReader {
             }
             guard status == 0 else { continue }
             // rusage contains the process birth token as well, preventing mixed PID-reuse samples.
+            let executablePath = String(decoding: pathBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             samples.append(ResourceProcessSample(pid: pid, parent: Int32(bsd.pbi_ppid), birth: usage.ri_proc_start_abstime,
-                path: String(decoding: pathBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self),
+                path: URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().standardizedFileURL.path,
                 cpuNanoseconds: usage.ri_user_time &+ usage.ri_system_time, memory: usage.ri_phys_footprint))
         }
         return samples

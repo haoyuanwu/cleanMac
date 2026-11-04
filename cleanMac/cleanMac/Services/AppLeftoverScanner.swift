@@ -63,6 +63,11 @@ nonisolated enum AppLeftoverSelection {
             return item
         }.sorted { $0.size > $1.size || ($0.size == $1.size && $0.path < $1.path) }
     }
+    /// 按已选软件限定数据范围，但保留完整清单中的共享归属和安全属性。
+    static func forApplications(_ estimates: [AppLeftoverEstimate], selectedPaths: Set<String>) -> [AppLeftoverItem] {
+        let paths = Set(estimates.filter { selectedPaths.contains($0.appPath) }.flatMap { $0.leftovers.map(\.path) })
+        return merged(estimates).filter { paths.contains($0.path) }
+    }
     static func coveredOnce(_ items: [AppLeftoverItem]) -> [AppLeftoverItem] {
         var included = Set<String>(), directories = Set<String>()
         return items.sorted { $0.path.count < $1.path.count }.filter { item in

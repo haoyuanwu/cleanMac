@@ -489,6 +489,70 @@ final class RemainingPlanTests: XCTestCase {
         XCTAssertGreaterThan(own?.memory ?? 0, 0)
     }
 
+    func testResourceInventoryIncludesWindowAndMenuBarApps() {
+        XCTAssertTrue(ResourceApplicationInventory.includes(path: "/Applications/Editor.app", policy: .regular))
+        XCTAssertTrue(ResourceApplicationInventory.includes(path: "/Applications/Tray.app", policy: .accessory))
+        XCTAssertTrue(ResourceApplicationInventory.includes(path: "/Users/test/Applications/Tray.app", policy: .accessory))
+        XCTAssertTrue(ResourceApplicationInventory.includes(path: "/System/Library/CoreServices/Finder.app", policy: .regular))
+    }
+
+    func testResourceReaderMatchesCanonicalExecutablePath() throws {
+        let own = try XCTUnwrap(ApplicationResourceReader.processes().first { $0.pid == ProcessInfo.processInfo.processIdentifier })
+        let expected = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().standardizedFileURL.path
+        XCTAssertEqual(own.path, expected)
+    }
+
+    func testResourceInventoryExcludesEmbeddedHelpersAndSystemAgents() {
+        XCTAssertFalse(ResourceApplicationInventory.includes(path: "/Applications/Editor.app/Contents/Helpers/Helper.app", policy: .accessory))
+        XCTAssertFalse(ResourceApplicationInventory.includes(path: "/Applications/Editor.app/Contents/PlugIns/Widget.appex", policy: .regular))
+        XCTAssertFalse(ResourceApplicationInventory.includes(path: "/System/Library/CoreServices/Agent.app", policy: .accessory))
+        XCTAssertFalse(ResourceApplicationInventory.includes(path: "/Library/Apple/Agent.app", policy: .accessory))
+        XCTAssertFalse(ResourceApplicationInventory.includes(path: "/Applications/Daemon.app", policy: .prohibited))
+    }
+
+    func testResourceInventoryUsesStableProcessIdentityWithoutWorkspaceLaunchDate() throws {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let first = try XCTUnwrap(ResourceApplicationInventory.processLaunchDate(pid: pid))
+        XCTAssertEqual(ResourceApplicationInventory.processLaunchDate(pid: pid), first)
+        XCTAssertLessThanOrEqual(first, Date())
+        XCTAssertNil(ResourceApplicationInventory.processLaunchDate(pid: -1))
+    }
+
+    func testResourceLivenessChecksRunningInstanceIdentity() throws {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let date = try XCTUnwrap(ResourceApplicationInventory.processLaunchDate(pid: pid))
+        XCTAssertTrue(ResourceApplicationInventory.isRunning(pid: pid, launchDate: date))
+        XCTAssertFalse(ResourceApplicationInventory.isRunning(pid: pid, launchDate: date.addingTimeInterval(-1)))
+        XCTAssertFalse(ResourceApplicationInventory.isRunning(pid: -1))
+        XCTAssertFalse(ResourceApplicationInventory.isRunning(pid: 0))
+    }
+
+    func testResourceLivenessRemovesNormallyExitedProcess() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        defer { if process.isRunning { process.terminate(); process.waitUntilExit() } }
+        let date = try XCTUnwrap(ResourceApplicationInventory.processLaunchDate(pid: process.processIdentifier))
+        XCTAssertTrue(ResourceApplicationInventory.isRunning(pid: process.processIdentifier, launchDate: date))
+        process.terminate()
+        process.waitUntilExit()
+        XCTAssertFalse(ResourceApplicationInventory.isRunning(pid: process.processIdentifier, launchDate: date))
+    }
+
+    func testResourceLivenessRemovesForceKilledProcess() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        defer { if process.isRunning { process.terminate(); process.waitUntilExit() } }
+        let date = try XCTUnwrap(ResourceApplicationInventory.processLaunchDate(pid: process.processIdentifier))
+        XCTAssertTrue(ResourceApplicationInventory.isRunning(pid: process.processIdentifier, launchDate: date))
+        XCTAssertEqual(kill(process.processIdentifier, SIGKILL), 0)
+        process.waitUntilExit()
+        XCTAssertFalse(ResourceApplicationInventory.isRunning(pid: process.processIdentifier, launchDate: date))
+    }
+
     func testResourceBurstRequiresBaselineAndConfirmationSample() {
         var policy = ResourceAlertPolicy(memoryThreshold: 1000)
         _ = policy.evaluate([resourceUsage(cpu: 10)], now: 0)

@@ -39,6 +39,7 @@ class MainViewModel: ObservableObject {
     /// 卸载增强：残留估算与勾选
     @Published var uninstallEstimates: [AppLeftoverEstimate] = []
     @Published var selectedLeftoverPaths: Set<String> = []
+    @Published private(set) var selectedUninstallAppPaths = Set<String>()
     @Published var showingUninstallDialog = false
     @Published private(set) var isEstimatingUninstall = false
     @Published private(set) var isQuittingUninstallApplications = false
@@ -636,6 +637,7 @@ class MainViewModel: ObservableObject {
         let requestID = UUID()
         uninstallRequestID = requestID
         pendingDeleteFiles = allowed
+        selectedUninstallAppPaths = Set(allowed.map(\.path))
         pendingDeleteCategory = .applications
         selectedLeftoverPaths = []
         uninstallEstimates = []
@@ -658,10 +660,25 @@ class MainViewModel: ObservableObject {
         }
     }
 
+    func updateUninstallAppSelection(_ paths: Set<String>) {
+        guard showingUninstallDialog, !isEstimatingUninstall, !isQuittingUninstallApplications else { return }
+        let next = paths.intersection(Set(pendingDeleteFiles.map(\.path)))
+        let added = next.subtracting(selectedUninstallAppPaths)
+        selectedUninstallAppPaths = next
+        let available = AppLeftoverSelection.forApplications(uninstallEstimates, selectedPaths: next)
+        selectedLeftoverPaths.formIntersection(Set(available.filter(\.isSelectable).map(\.path)))
+        let defaults = AppLeftoverSelection.forApplications(uninstallEstimates, selectedPaths: added)
+            .filter { $0.isSelectable && $0.defaultSelected }
+        selectedLeftoverPaths.formUnion(defaults.map(\.path))
+        refreshUninstallRunningApplications()
+    }
+
     func refreshUninstallRunningApplications() {
-        let selected = AppLeftoverSelection.merged(uninstallEstimates).filter { selectedLeftoverPaths.contains($0.path) }
-        let identifiers = selected.reduce(into: Set(uninstallEstimates.compactMap(\.bundleIdentifier))) { $0.formUnion($1.relatedBundleIdentifiers) }
-        let paths = selected.reduce(into: Set(pendingDeleteFiles.map(\.path))) { $0.formUnion($1.relatedApplicationPaths) }
+        let active = uninstallEstimates.filter { selectedUninstallAppPaths.contains($0.appPath) }
+        let selected = AppLeftoverSelection.forApplications(uninstallEstimates, selectedPaths: selectedUninstallAppPaths)
+            .filter { selectedLeftoverPaths.contains($0.path) }
+        let identifiers = selected.reduce(into: Set(active.compactMap(\.bundleIdentifier))) { $0.formUnion($1.relatedBundleIdentifiers) }
+        let paths = selected.reduce(into: Set(pendingDeleteFiles.filter { selectedUninstallAppPaths.contains($0.path) }.map(\.path))) { $0.formUnion($1.relatedApplicationPaths) }
         uninstallRunningApplications = ApplicationRuntimeControl.running(appPaths: paths, bundleIdentifiers: identifiers)
     }
 
@@ -690,8 +707,9 @@ class MainViewModel: ObservableObject {
             uninstallStatusMessage = "相关应用仍在运行，请先保存工作并退出。"
             return
         }
-        let files = pendingDeleteFiles
-        let leftovers = AppLeftoverSelection.coveredOnce(AppLeftoverSelection.merged(uninstallEstimates).filter { $0.isSelectable && selectedLeftoverPaths.contains($0.path) })
+        let files = pendingDeleteFiles.filter { selectedUninstallAppPaths.contains($0.path) }
+        guard !files.isEmpty else { uninstallStatusMessage = "请至少勾选一个要卸载的应用。"; return }
+        let leftovers = AppLeftoverSelection.coveredOnce(AppLeftoverSelection.forApplications(uninstallEstimates, selectedPaths: selectedUninstallAppPaths).filter { $0.isSelectable && selectedLeftoverPaths.contains($0.path) })
         cancelUninstall()
         Task { await uninstallApplications(files, leftovers: leftovers) }
     }
@@ -703,6 +721,7 @@ class MainViewModel: ObservableObject {
         pendingDeleteFiles = []
         pendingDeleteCategory = nil
         uninstallEstimates = []
+        selectedUninstallAppPaths = []
         selectedLeftoverPaths = []
         uninstallRunningApplications = []
         uninstallStatusMessage = nil

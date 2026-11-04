@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一键发布：准备版本 → 双架构打包校验 → 中文提交 → 推送 → 等待 GitHub 发布。
+# 一键发布：准备版本 → Apple Silicon打包校验 → 中文提交 → 推送 → 等待 GitHub 发布。
 # 用法：./Scripts/publish_release.sh 1.0.8
 # 仅继续等待已推送的版本：./Scripts/publish_release.sh 1.0.8 --wait-only
 set -euo pipefail
@@ -83,12 +83,12 @@ PY
   bash -n "$APP_ROOT/Scripts/make_dmg.sh" "$APP_ROOT/Scripts/publish_release.sh"
   git diff --check
   if [[ "$MODE" = --ci-only ]]; then
-    echo '==> 云端构建模式：由 GitHub Actions 执行测试、双架构构建和安装包校验'
+    echo '==> 云端构建模式：由 GitHub Actions 执行测试、Apple Silicon构建和安装包校验'
   else
     echo '==> 运行核心模型和文件系统回归测试'
     "$APP_ROOT/Scripts/test_p0.sh"
-    echo '==> 构建并自动校验 Apple Silicon 和 Intel 安装包'
-    BUILD_ARCH=all "$APP_ROOT/Scripts/make_dmg.sh"
+    echo '==> 构建并自动校验 Apple Silicon 安装包'
+    BUILD_ARCH=arm64 "$APP_ROOT/Scripts/make_dmg.sh"
   fi
   # 只暂存应用源码、设计资源、发布脚本、版本和说明；不包含 Xcode 用户状态及 build 产物。
   git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
@@ -119,7 +119,7 @@ PYVERSION
   else
     git tag -a "$TAG" -m "cleanMac ${VERSION}：详见 docs/releases/$TAG.md"
   fi
-  echo '==> 原子推送代码与标签，触发 GitHub 双架构发布'
+  echo '==> 原子推送代码与标签，触发 GitHub Apple Silicon发布'
   git push --atomic "$PUSH_URL" HEAD:refs/heads/main "refs/tags/$TAG:refs/tags/$TAG"
 fi
 COMMIT="$(git rev-list -n 1 "$TAG")"

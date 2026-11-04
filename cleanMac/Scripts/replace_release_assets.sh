@@ -50,17 +50,17 @@ if r['draft'] or r['tag_name']!=sys.argv[2]: raise SystemExit('错误：必须�
 PYRELEASE
 git diff --check
 bash -n "$APP_ROOT/Scripts/replace_release_assets.sh" "$APP_ROOT/Scripts/make_dmg.sh"
-echo '==> 运行回归测试并构建、校验双架构安装包'
+echo '==> 运行回归测试并构建、校验Apple Silicon安装包'
 "$APP_ROOT/Scripts/test_p0.sh"
-BUILD_ARCH=all "$APP_ROOT/Scripts/make_dmg.sh"
-git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/Design" "$APP_ROOT/Scripts" "$APP_ROOT/cleanMacTests" "$PROJECT" "$REPO_ROOT/README.md"
+BUILD_ARCH=arm64 "$APP_ROOT/Scripts/make_dmg.sh"
+git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/Design" "$APP_ROOT/Scripts" "$APP_ROOT/cleanMacTests" "$PROJECT" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
 git add -f -- "$NOTES"
 git diff --cached --check
 git commit -m "更新 $TAG 安装包：延迟启动扫描并减少窗口焦点干扰（构建 ${BUILD}）"
 git tag -a "$BUILD_TAG" -m "cleanMac $VERSION 构建 ${BUILD}：既有版本安装包更新"
 git push --atomic "$PUSH_URL" HEAD:refs/heads/main "refs/tags/$BUILD_TAG:refs/tags/$BUILD_TAG"
-echo '==> 替换当前 Release 的两个安装包并同步说明'
-gh release upload "$TAG" "$APP_ROOT/build/cleanMac-arm64.dmg" "$APP_ROOT/build/cleanMac-x86_64.dmg" --clobber --repo "$REPOSITORY"
+echo '==> 替换当前 Release 的 Apple Silicon 安装包并同步说明'
+gh release upload "$TAG" "$APP_ROOT/build/cleanMac-arm64.dmg" --clobber --repo "$REPOSITORY"
 gh release edit "$TAG" --notes-file "$NOTES" --repo "$REPOSITORY"
 gh api "repos/$REPOSITORY/releases/tags/$TAG" > /tmp/cleanmac-replacement-release-verified.json
 python3 - /tmp/cleanmac-replacement-release-verified.json "$NOTES" "$APP_ROOT/build" <<'PYVERIFY'
@@ -69,7 +69,7 @@ from pathlib import Path
 r=json.load(open(sys.argv[1]))
 if r['body'].strip()!=Path(sys.argv[2]).read_text().strip(): raise SystemExit('错误：线上说明不一致')
 assets={a['name']:a for a in r['assets']}
-for name in ['cleanMac-arm64.dmg','cleanMac-x86_64.dmg']:
+for name in ['cleanMac-arm64.dmg']:
  a=assets[name]; p=Path(sys.argv[3])/name
  if a['state']!='uploaded' or a['size']!=p.stat().st_size: raise SystemExit('错误：附件未上传完成')
  digest='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()

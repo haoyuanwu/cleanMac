@@ -1,21 +1,19 @@
 #!/bin/bash
-# 默认生成 Apple Silicon 和 Intel 两个 DMG。
-# BUILD_ARCH=arm64|x86_64|universal 可仅生成指定架构。
+# 仅生成 Apple Silicon（arm64）安装包。
 # 正式发布：CODESIGN_IDENTITY="Developer ID Application: ..." NOTARY_KEYCHAIN_PROFILE=... ./Scripts/make_dmg.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 APP_NAME="cleanMac"
-BUILD_ARCH="${BUILD_ARCH:-all}"
+BUILD_ARCH="${BUILD_ARCH:-arm64}"
 SIGNING_IDENTITY="${CODESIGN_IDENTITY:--}"
 BUNDLE_ID="com.cleanMac.cache.cleanMac"
 
-case "$BUILD_ARCH" in
-  all) TARGET_ARCHS=(arm64 x86_64) ;;
-  arm64|x86_64|universal) TARGET_ARCHS=("$BUILD_ARCH") ;;
-  *) echo "错误：BUILD_ARCH 只支持 all、arm64、x86_64 或 universal" >&2; exit 1 ;;
-esac
+[[ "$BUILD_ARCH" = arm64 ]] || {
+  echo '错误：后续安装包仅支持 Apple Silicon，BUILD_ARCH 必须为 arm64' >&2
+  exit 1
+}
 
 HAS_NOTARY=0
 if [[ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
@@ -69,11 +67,7 @@ verify_dmg() {
     test "$(plutil -extract CFBundleShortVersionString raw -o - "$local_app/Contents/Info.plist")" = "$expected_version"
     test "$(plutil -extract CFBundleVersion raw -o - "$local_app/Contents/Info.plist")" = "$expected_build"
     actual_arch="$(lipo -archs "$local_app/Contents/MacOS/$APP_NAME")"
-    if [[ "$expected_arch" = universal ]]; then
-      lipo -verify_arch arm64 x86_64 "$local_app/Contents/MacOS/$APP_NAME"
-    else
-      test "$actual_arch" = "$expected_arch"
-    fi
+    test "$actual_arch" = "$expected_arch"
     if [[ "$HAS_NOTARY" = 1 ]]; then
       xcrun stapler validate "$dmg"
       spctl --assess --type execute --verbose=2 "$local_app"
@@ -85,18 +79,13 @@ verify_dmg() {
 build_dmg() {
   local arch="$1" suffix derived app_path staging dmg log version build
   suffix="-$arch"
-  [[ "$arch" != universal ]] || suffix=""
   derived="$ROOT/build/dd$suffix"
   app_path="$derived/Build/Products/Release/$APP_NAME.app"
   staging="$ROOT/build/dmg-staging$suffix"
   dmg="$ROOT/build/$APP_NAME$suffix.dmg"
   log="$ROOT/build/xcodebuild-release$suffix.log"
   local build_settings=(CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO)
-  if [[ "$arch" = universal ]]; then
-    build_settings+=("ARCHS=arm64 x86_64")
-  else
-    build_settings+=("ARCHS=$arch")
-  fi
+  build_settings+=("ARCHS=$arch")
   mkdir -p "$ROOT/build"
   echo "==> [$arch] 构建 Release"
   if ! xcodebuild -project cleanMac.xcodeproj -scheme cleanMac \
@@ -136,9 +125,7 @@ build_dmg() {
   ls -lh "$dmg"
 }
 
-for target_arch in "${TARGET_ARCHS[@]}"; do
-  build_dmg "$target_arch"
-done
+build_dmg arm64
 if [[ "$HAS_NOTARY" != 1 ]]; then
   echo "提示：安装包已完成完整性签名，但尚未通过 Apple 公证，下载后仍可能被 Gatekeeper 拦截。"
 fi

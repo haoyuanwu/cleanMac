@@ -9,31 +9,33 @@ struct UninstallLeftoverDialog: View {
     let isQuitting: Bool
     let statusMessage: String?
     @Binding var selectedLeftoverPaths: Set<String>
+    @Binding var selectedAppPaths: Set<String>
     let onQuit: () -> Void
     let onRefresh: () -> Void
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
-    private var allLeftovers: [AppLeftoverItem] { AppLeftoverSelection.merged(estimates) }
+    private var allLeftovers: [AppLeftoverItem] { AppLeftoverSelection.forApplications(estimates, selectedPaths: selectedAppPaths) }
+    private var selectedApps: [AppLeftoverEstimate] { estimates.filter { selectedAppPaths.contains($0.appPath) } }
     private var selected: [AppLeftoverItem] {
         AppLeftoverSelection.coveredOnce(allLeftovers.filter { $0.isSelectable && selectedLeftoverPaths.contains($0.path) })
     }
     private var exclusive: [AppLeftoverItem] { allLeftovers.filter { $0.isSelectable && !$0.isShared } }
-    private var issues: [String] { estimates.flatMap(\.issues) }
+    private var issues: [String] { selectedApps.flatMap(\.issues) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("核对卸载清单 · \(appCount) 个应用").font(.system(size: 21, weight: .bold))
-                    Text("应用和所选数据将移到废纸篓。默认只选明确归属的缓存、日志和状态存档。")
+                    Text("核对卸载清单 · 已选 \(selectedAppPaths.count)/\(appCount) 个应用").font(.system(size: 21, weight: .bold))
+                    Text("勾选要卸载的应用；应用本体和所选关联数据将移到废纸篓。")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Button("取消", action: onCancel).keyboardShortcut(.cancelAction)
             }
             HStack(spacing: 12) {
-                metric("应用逻辑大小", bytes: estimates.reduce(0) { $0 + $1.appSize })
+                metric("已选应用逻辑大小", bytes: selectedApps.reduce(0) { $0 + $1.appSize })
                 metric("已选关联数据", bytes: selected.reduce(0) { $0 + $1.size })
                 Text("\(selected.count) 项已选").font(.system(size: 13, weight: .medium)).monospacedDigit()
             }
@@ -50,14 +52,33 @@ struct UninstallLeftoverDialog: View {
                             Text("正在关联应用数据、容器与启动项…").font(.system(size: 13))
                         }.padding(.vertical, 28).frame(maxWidth: .infinity)
                     }
+                    if !estimates.isEmpty {
+                        Toggle("全选应用", isOn: Binding(
+                            get: { Set(estimates.map(\.appPath)).isSubset(of: selectedAppPaths) },
+                            set: { selectedAppPaths = $0 ? Set(estimates.map(\.appPath)) : [] }
+                        )).toggleStyle(UninstallCheckboxStyle()).disabled(isLoading || isQuitting)
+                    }
                     ForEach(estimates, id: \.appPath) { estimate in
                         HStack(spacing: 12) {
-                            Image(systemName: "app").font(.system(size: 22)).foregroundStyle(.indigo).accessibilityHidden(true)
+                            Toggle("卸载 \(estimate.displayName)", isOn: Binding(
+                                get: { selectedAppPaths.contains(estimate.appPath) },
+                                set: { on in
+                                    var next = selectedAppPaths
+                                    if on { next.insert(estimate.appPath) } else { next.remove(estimate.appPath) }
+                                    selectedAppPaths = next
+                                }
+                            )).toggleStyle(UninstallCheckboxStyle(hidesLabel: true))
+                                .accessibilityLabel("卸载 \(estimate.displayName)")
+                                .disabled(isLoading || isQuitting)
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: estimate.appPath))
+                                .resizable().scaledToFit().frame(width: 32, height: 32).accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(estimate.displayName).font(.system(size: 14, weight: .semibold))
                                 Text(estimate.appPath).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
                             Spacer()
+                            Text(selectedAppPaths.contains(estimate.appPath) ? "已勾选卸载" : "保留应用")
+                                .font(.system(size: 12)).foregroundStyle(selectedAppPaths.contains(estimate.appPath) ? Color.accentColor : Color.secondary)
                             Text(estimate.appSizeFormatted).font(.system(size: 13)).monospacedDigit()
                         }.padding(12).background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
                     }
@@ -69,7 +90,7 @@ struct UninstallLeftoverDialog: View {
                         }.font(.system(size: 12)).foregroundStyle(.orange)
                     }
                     if !isLoading, allLeftovers.isEmpty {
-                        Text(issues.isEmpty ? "未发现已确认的关联数据。" : "未找到可列出的项目；部分路径未能读取，请展开提示查看。")
+                        Text(selectedAppPaths.isEmpty ? "请勾选要卸载的应用。" : issues.isEmpty ? "未发现已确认的关联数据。" : "未找到可列出的项目；部分路径未能读取，请展开提示查看。")
                             .font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 20)
                     }
                     if !allLeftovers.isEmpty {
@@ -79,7 +100,7 @@ struct UninstallLeftoverDialog: View {
                                 if on { selectedLeftoverPaths.formUnion(exclusive.map(\.path)) }
                                 else { selectedLeftoverPaths.subtract(exclusive.map(\.path)) }
                             }
-                        )).toggleStyle(.checkbox).font(.system(size: 12)).disabled(exclusive.isEmpty || isQuitting)
+                        )).toggleStyle(UninstallCheckboxStyle()).font(.system(size: 12)).disabled(exclusive.isEmpty || isQuitting)
                         ForEach(allLeftovers) { item in leftoverRow(item) }
                     }
                 }.padding(.vertical, 4)
@@ -94,12 +115,12 @@ struct UninstallLeftoverDialog: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Button(action: onConfirm) {
-                    Text(isLoading ? "正在检查…" : selected.isEmpty ? "仅卸载应用" : "卸载并回收 \(selected.count) 项")
+                    Text(isLoading ? "正在检查…" : selectedAppPaths.isEmpty ? "请选择应用" : selected.isEmpty ? "卸载 \(selectedApps.count) 个应用" : "卸载 \(selectedApps.count) 个应用及 \(selected.count) 项数据")
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 18).frame(minHeight: 40)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isLoading || isQuitting || !runningApplications.isEmpty)
+                .disabled(isLoading || isQuitting || selectedApps.isEmpty || !runningApplications.isEmpty)
             }
         }
         .padding(22).background(Theme.canvas, in: RoundedRectangle(cornerRadius: 18))
@@ -138,7 +159,7 @@ struct UninstallLeftoverDialog: View {
                         set: { on in
                             if on { selectedLeftoverPaths.insert(item.path) } else { selectedLeftoverPaths.remove(item.path) }
                         }
-                    )).labelsHidden().toggleStyle(.checkbox).disabled(isQuitting)
+                    )).toggleStyle(UninstallCheckboxStyle(hidesLabel: true)).accessibilityLabel("选择 \(item.name)").disabled(isQuitting)
                 } else { Image(systemName: "lock").foregroundStyle(.secondary).accessibilityLabel("仅供核对") }
                 Text(item.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
@@ -169,5 +190,22 @@ struct UninstallLeftoverDialog: View {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
             Text(FileSizeFormatter.string(fromByteCount: bytes)).font(.system(size: 16, weight: .semibold)).monospacedDigit()
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 明确绘制勾选图形，避免隐藏 Toggle 标签后无法辨认选择状态。
+private struct UninstallCheckboxStyle: ToggleStyle {
+    var hidesLabel = false
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(configuration.isOn ? Color.accentColor : Color.secondary)
+                    .frame(width: 28, height: 30)
+                if !hidesLabel { configuration.label }
+            }.contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityValue(configuration.isOn ? "已勾选" : "未勾选")
     }
 }

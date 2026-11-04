@@ -27,6 +27,7 @@ struct ApplicationResourceCard: View {
     @State private var observerID = UUID()
     @State private var query = ""
     @State private var selectedApp: ResourceAppDescriptor?
+    @State private var forceTarget: ResourceAppDescriptor?
     @State private var order: Order = .cpu
     private enum Order: String, CaseIterable { case cpu = "CPU"; case memory = "内存"; case name = "名称" }
     private var rows: [ApplicationResourceUsage] {
@@ -99,23 +100,66 @@ struct ApplicationResourceCard: View {
                             Text(usage.sampleAvailable ? FileSizeFormatter.string(fromByteCount: Int64(clamping: usage.memory)) : "未读取")
                                 .frame(width: 90, alignment: .trailing)
                         }.font(.system(size: 12)).monospacedDigit().padding(.horizontal, 8).padding(.vertical, 6)
-                        }.buttonStyle(WorkspacePressStyle())
+                        }.buttonStyle(ApplicationUsageRowStyle())
                             .accessibilityLabel("查看\(usage.application.name)的占用详情")
+                            .help("点击查看占用详情，右键管理应用进程")
                             .contextMenu {
                                 Button("查看占用详情") { selectedApp = usage.application }
                                 Button(monitor.ignoredBundleIDs.contains(usage.application.bundleID) ? "恢复异常提醒" : "忽略异常提醒") {
                                     monitor.setIgnored(usage.application, ignored: !monitor.ignoredBundleIDs.contains(usage.application.bundleID))
                                 }
                                 Button("在 Finder 中显示") { NSWorkspace.shared.selectFile(usage.application.path, inFileViewerRootedAtPath: "") }
+                                Divider()
+                                Button { monitor.end(usage.application, force: false) } label: {
+                                    Label("正常退出应用", systemImage: "xmark.circle")
+                                }.disabled(!monitor.canEnd(usage.application))
+                                Button(role: .destructive) { forceTarget = usage.application } label: {
+                                    Label("强制结束进程…", systemImage: "stop.circle")
+                                }.disabled(!monitor.canEnd(usage.application))
                             }
                     }
                 }
             }.frame(height: listHeight)
+            if let message = monitor.message {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(message).frame(maxWidth: .infinity, alignment: .leading)
+                    Button { monitor.message = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).accessibilityLabel("关闭操作提示")
+                }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
+            }
             Text("每 5 秒更新 · CPU 100% 约为一个核心 · 内存为可读取关联进程的合计估算")
                 .font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary)
         }.padding(18).gradientGlass(cornerRadius: 18)
             .onAppear { monitor.retainOverview(observerID) }
             .onDisappear { monitor.releaseOverview(observerID) }
             .sheet(item: $selectedApp) { ApplicationUsageDetailView(app: $0) }
+            .alert("强制结束应用？", isPresented: Binding(get: { forceTarget != nil }, set: { if !$0 { forceTarget = nil } })) {
+                Button("取消", role: .cancel) { forceTarget = nil }
+                Button("强制结束", role: .destructive) {
+                    if let target = forceTarget { monitor.end(target, force: true) }
+                    forceTarget = nil
+                }
+            } message: {
+                Text("“\(forceTarget?.name ?? "此应用")”可能丢失未保存的内容。建议先使用“正常退出应用”。")
+            }
+    }
+}
+
+private struct ApplicationUsageRowStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .background {
+                GradientGlassSurface(cornerRadius: 10, highlighted: true)
+                    .opacity(hovered || configuration.isPressed ? 1 : 0)
+            }
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .onHover { hovered = $0 }
+            .onDisappear { hovered = false }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }

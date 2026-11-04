@@ -19,6 +19,9 @@ final class HighResourceMonitor: ObservableObject {
     private var timer: Timer?
     private var work: Task<Void, Never>?
     private var subscription: AnyCancellable?
+    private var workspaceSubscriptions: [AnyCancellable] = []
+    private var refreshPending = false
+    private var exitSources: [String: any DispatchSourceProcess] = [:]
     private var previous: [ResourceProcessSample] = []
     private var previousTime: TimeInterval = 0
     private var policy = ResourceAlertPolicy(memoryThreshold: 4 * 1024 * 1024 * 1024)
@@ -33,6 +36,11 @@ final class HighResourceMonitor: ObservableObject {
         guard subscription == nil else { return }
         subscription = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.configure() }
+        workspaceSubscriptions = [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
+                                  NSWorkspace.didActivateApplicationNotification].map { name in
+            NSWorkspace.shared.notificationCenter.publisher(for: name)
+                .receive(on: RunLoop.main).sink { [weak self] _ in self?.refresh() }
+        }
         configure()
     }
     private func configure() {
@@ -46,6 +54,9 @@ final class HighResourceMonitor: ObservableObject {
         alertReadyAfter = ProcessInfo.processInfo.systemUptime + 60
         timer?.invalidate(); timer = nil; work?.cancel(); work = nil
         applications = []; allApplications = []; isSampling = false; previous = []; previousTime = 0
+        refreshPending = false
+        for source in exitSources.values { source.cancel() }
+        exitSources.removeAll()
         policy = ResourceAlertPolicy(cpuThreshold: cpu, memoryThreshold: max(4 * 1024 * 1024 * 1024, UInt64(Double(ProcessInfo.processInfo.physicalMemory) * memory / 100)))
         onUpdate?()
         guard samplingNeeded else { return }
@@ -62,15 +73,36 @@ final class HighResourceMonitor: ObservableObject {
             && !app.path.hasPrefix("/System/") && !app.path.hasPrefix("/usr/")
             && !UserWhitelist.isWhitelisted(app.path)
     }
-    func refresh() {
-        guard enabled || !overviewClients.isEmpty, work == nil else { return }
-        isSampling = true
-        let apps = NSWorkspace.shared.runningApplications.compactMap { app -> ResourceAppDescriptor? in
-            guard app.activationPolicy == .regular, !app.isTerminated,
-                  let path = app.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path, let date = app.launchDate,
-                  let id = app.bundleIdentifier else { return nil }
-            return ResourceAppDescriptor(pid: app.processIdentifier, launchDate: date, bundleID: id, name: app.localizedName ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent, path: path)
+
+    private func observeExit(of app: ResourceAppDescriptor) {
+        guard exitSources[app.id] == nil else { return }
+        let id = app.id
+        let source = DispatchSource.makeProcessSource(identifier: app.pid, eventMask: .exit, queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.removeExitedApplication(id: id) }
         }
+        exitSources[id] = source
+        source.resume()
+    }
+
+    private func removeExitedApplication(id: String) {
+        exitSources.removeValue(forKey: id)?.cancel()
+        allApplications.removeAll { $0.id == id }
+        applications.removeAll { $0.id == id }
+        usageHistory.removeValue(forKey: id)
+        onUpdate?()
+        refresh()
+    }
+
+    func refresh() {
+        guard enabled || !overviewClients.isEmpty else { return }
+        // 启动通知或手动刷新发生在采样途中时，保留一次后续刷新，避免丢掉新应用。
+        guard work == nil else { refreshPending = true; return }
+        isSampling = true
+        let apps = ResourceApplicationInventory.runningApplications()
+        let ids = Set(apps.map(\.id))
+        for id in Array(exitSources.keys) where !ids.contains(id) { exitSources.removeValue(forKey: id)?.cancel() }
+        for app in apps { observeExit(of: app) }
         let token = generation
         let eligibleIDs = Set(apps.filter { canAlert($0) && Date().timeIntervalSince($0.launchDate) >= 60 }.map(\.id))
         let checkResponsiveness = enabled && AXIsProcessTrusted()
@@ -93,7 +125,9 @@ final class HighResourceMonitor: ObservableObject {
             let samples = reading.0
             guard token == generation, !Task.isCancelled else { return }
             let now = ProcessInfo.processInfo.systemUptime
-            let usage = ApplicationResourceReader.aggregate(applications: apps, current: samples, previous: previous, elapsed: now - previousTime).map { original in
+            // 采样期间应用可能已经退出，不能把开始采样时的旧实例写回列表。
+            let liveApps = apps.filter { ResourceApplicationInventory.isRunning(pid: $0.pid, launchDate: $0.launchDate) }
+            let usage = ApplicationResourceReader.aggregate(applications: liveApps, current: samples, previous: previous, elapsed: now - previousTime).map { original in
                 var usage = original
                 usage.responsiveness = reading.1[usage.id] ?? .unknown
                 return usage
@@ -117,6 +151,7 @@ final class HighResourceMonitor: ObservableObject {
             work = nil; isSampling = false
             onUpdate?()
             if !result.notify.isEmpty, snoozedUntil.map({ $0 <= Date() }) ?? true { onAlert?() }
+            if refreshPending { refreshPending = false; refresh() }
         }
     }
     func setIgnored(_ app: ResourceAppDescriptor, ignored: Bool) {
@@ -136,8 +171,8 @@ final class HighResourceMonitor: ObservableObject {
 
     private func validated(_ target: ResourceAppDescriptor) -> NSRunningApplication? {
         guard let app = NSRunningApplication(processIdentifier: target.pid), !app.isTerminated,
-              app.launchDate == target.launchDate, app.bundleIdentifier == target.bundleID,
-              app.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == target.path, app.activationPolicy == .regular,
+              let current = ResourceApplicationInventory.descriptor(for: app), current.id == target.id,
+              current.bundleID == target.bundleID, current.path == target.path,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               !target.bundleID.lowercased().hasPrefix("com.cleanmac."),
               !SafetyWhitelist.isProtectedApp(path: target.path), !target.path.hasPrefix("/System/"),
@@ -151,6 +186,7 @@ final class HighResourceMonitor: ObservableObject {
         guard let app = validated(target) else { message = "应用已退出、进程身份改变或受到保护，请刷新列表。"; refresh(); return }
         let accepted = force ? app.forceTerminate() : app.terminate()
         message = accepted ? (force ? "已向 \(target.name) 提交强制结束请求，列表会随采样更新。" : "已请求 \(target.name) 正常退出；如有保存提示，请先处理。") : "\(target.name) 未接受退出请求，请核对应用状态。"
+        refresh()
     }
 }
 

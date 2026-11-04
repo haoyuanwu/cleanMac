@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""等待已推送版本发布，自动确认中文编号说明和两个上传附件。"""
+"""等待已推送版本发布，自动确认中文编号说明和Apple Silicon 上传附件。"""
 import json
 import pathlib
 import subprocess
@@ -35,7 +35,7 @@ def main():
             release = request(f'repos/{repo}/releases/tags/{urllib.parse.quote(tag)}')
             if release and not release['draft']:
                 assets = {asset['name']: asset for asset in release['assets']}
-                names = ['cleanMac-arm64.dmg', 'cleanMac-x86_64.dmg']
+                names = ['cleanMac-arm64.dmg']
                 complete = all(name in assets and assets[name]['state'] == 'uploaded'
                                and assets[name]['size'] > 0 for name in names)
                 if complete:

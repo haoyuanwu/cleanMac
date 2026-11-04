@@ -17,6 +17,27 @@ final class AppUninstallAssociationTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: root) }
 
+    func testUnselectedApplicationDataIsExcludedButSharedSafetyIsPreserved() throws {
+        let first = AppLeftoverItem(id: "a", path: "/tmp/a/cache", name: "A cache", size: 1, isDirectory: true, defaultSelected: true)
+        let second = AppLeftoverItem(id: "b", path: "/tmp/b/cache", name: "B cache", size: 2, isDirectory: true, defaultSelected: true)
+        let shared = AppLeftoverItem(id: "shared", path: "/tmp/shared", name: "Shared", size: 3, isDirectory: true, defaultSelected: true)
+        let a = AppLeftoverEstimate(appPath: "/Applications/A.app", appName: "A", bundleIdentifier: "a", appSize: 10, leftovers: [first, shared])
+        let b = AppLeftoverEstimate(appPath: "/Applications/B.app", appName: "B", bundleIdentifier: "b", appSize: 20, leftovers: [second, shared])
+        let scoped = AppLeftoverSelection.forApplications([a, b], selectedPaths: [a.appPath])
+        XCTAssertEqual(Set(scoped.map(\.path)), [first.path, shared.path])
+        let retainedShared = try XCTUnwrap(scoped.first { $0.path == shared.path })
+        XCTAssertTrue(retainedShared.isShared)
+        XCTAssertFalse(retainedShared.defaultSelected)
+        XCTAssertTrue(scoped.first { $0.path == first.path }?.defaultSelected == true)
+    }
+
+    func testNoSelectedApplicationCannotRetainAssociatedData() {
+        let cache = AppLeftoverItem(id: "a", path: "/tmp/a/cache", name: "Cache", size: 1, isDirectory: true)
+        let estimate = AppLeftoverEstimate(appPath: "/Applications/A.app", appName: "A", bundleIdentifier: "a", appSize: 10, leftovers: [cache])
+        XCTAssertTrue(AppLeftoverSelection.forApplications([estimate], selectedPaths: []).isEmpty)
+        XCTAssertTrue(AppLeftoverSelection.forApplications([estimate], selectedPaths: ["/Applications/Unknown.app"]).isEmpty)
+    }
+
     private var installed: [ApplicationCacheScanner.InstalledApplication] {
         [.init(application: .init(id: identifier, name: "Editor", path: app.path), aliases: ["editor", identifier.lowercased()])]
     }

@@ -18,6 +18,8 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 关闭主窗口后，应用继续驻留状态栏并隐藏 Dock 图标；通过状态栏或重新打开应用可恢复主窗口。使用“退出”可完全结束应用。
 
+卸载确认清单明确显示软件本体及关联数据的勾选状态；取消软件勾选会同步排除其独有数据，全部取消后无法执行卸载。
+
 ### 智能清理
 
 首页的扫描助手是独立的交互图形，点击“开始扫描”后原地放大并衔接扫描动画；App 图标采用纯色背景、拼色笔记本与屏幕星光。侧边栏按各模块功能绘制图标，支持悬停提示和键盘快捷键。
@@ -41,7 +43,7 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 - **每日定时扫描**：可调整时间或关闭；定时任务只扫描，不自动删除文件。
 - **诊断与清理记录**：查看无法读取的路径、取消状态和扫描统计，导出诊断 JSON；从清理记录恢复仍保留在废纸篓内的项目。
 - **本机检查**：只读查看启动项、插件和浏览器隐私元数据；根据扫描结果查看空间建议。
-- **应用占用监控**：查看运行应用的 CPU、内存、最近五分钟趋势和关联进程；异常提醒与普通状态栏面板统一控制，支持手动正常退出、忽略及恢复提醒，不自动结束应用。
+- **应用占用监控**：查看运行应用的 CPU、内存、最近五分钟趋势和关联进程，包含独立菜单栏应用；应用启动、退出和激活时主动刷新，兼容系统未提供启动时间的应用。列表支持悬停反馈及右键正常退出、确认后强制结束；异常提醒与普通状态栏面板统一控制，支持忽略及恢复提醒，不自动结束应用。
 - **设备信息**：七个功能卡片分别呈现应用占用、整机 CPU 与热状态、内存压力与交换空间、网络与连接、电池与电源、存储空间和系统档案；支持磁盘读写趋势、本地与外接卷列表、显示器模式及脱敏报告导出。
 - **手动网络诊断**：点击后检查默认路由、网关响应、DNS 和 Apple 测试端点的 HTTPS 连通性，不上传设备报告。
 - **扫描反馈**：代码绘制的巡检员和文件夹动画配合真实进度、路径反馈；按钮到扫描状态的展开过渡支持即时取消与减少动态效果。
@@ -58,7 +60,7 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/haoyuanwu/cleanMac/releases/latest) 下载对应芯片的安装包：Apple Silicon（M 系列）选择 `cleanMac-arm64.dmg`，Intel 选择 `cleanMac-x86_64.dmg`。打开 DMG 后将 `cleanMac.app` 拖入“应用程序”文件夹。
+从 [GitHub Releases](https://github.com/haoyuanwu/cleanMac/releases/latest) 下载 Apple Silicon（M 系列）安装包 `cleanMac-arm64.dmg`。后续版本仅提供 Apple Silicon 安装包；历史版本的 Intel 附件保留。打开 DMG 后将 `cleanMac.app` 拖入“应用程序”文件夹。
 
 要求 **macOS 13.5 或更新版本**。部分受系统保护的位置可能需要“完全磁盘访问”或操作时的管理员授权。发布包的签名与公证状态请以对应 Release 说明为准。
 
@@ -108,11 +110,11 @@ sudo spctl --global-enable
 
 ## 构建
 
-进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。直接运行 `./Scripts/make_dmg.sh` 会生成 `build/cleanMac-arm64.dmg` 和 `build/cleanMac-x86_64.dmg`。可用 `BUILD_ARCH=arm64` 或 `BUILD_ARCH=x86_64` 只生成一个架构，`BUILD_ARCH=universal` 生成通用包。
+进入 `cleanMac` 目录后，使用 Xcode 打开 `cleanMac.xcodeproj`，选择 `cleanMac` scheme。直接运行 `./Scripts/make_dmg.sh` 仅生成 `build/cleanMac-arm64.dmg`，脚本仅接受 arm64 架构。
 
 脚本会为 app 添加完整签名，并挂载每个 DMG 检查包内签名、版本和架构；校验失败即停止。默认使用 ad-hoc 完整性签名，这不能替代 Developer ID 和 Apple 公证，下载后仍可能被 Gatekeeper 拦截。
 
-配置发布证书与已存入钥匙串的公证凭据后，可运行 `CODESIGN_IDENTITY="Developer ID Application: ..." NOTARY_KEYCHAIN_PROFILE="配置名称" ./Scripts/make_dmg.sh`，生成签名并公证的两个安装包。公证完成后脚本还会验证公证票据和 Gatekeeper 评估结果。
+配置发布证书与已存入钥匙串的公证凭据后，可运行 `CODESIGN_IDENTITY="Developer ID Application: ..." NOTARY_KEYCHAIN_PROFILE="配置名称" ./Scripts/make_dmg.sh`，生成签名并公证的 Apple Silicon 安装包。公证完成后脚本还会验证公证票据和 Gatekeeper 评估结果。
 
 ## 发布新版本
 
@@ -122,7 +124,7 @@ sudo spctl --global-enable
 RELEASE_COMMIT_MESSAGE="发布 v1.0.11：完善设备监测与扫描交互并修复异常提醒" ./Scripts/publish_release.sh 1.0.11
 ```
 
-脚本自动递增构建号、更新版本号、运行核心回归测试、生成并校验两个架构的 DMG，创建中文 Git 提交和版本标签，通过 SSH 原子推送到 GitHub，再等待 Actions 测试、构建并上传两个安装包。发布完成时自动核对线上标签、版本说明和附件，并输出下载链接。Xcode 用户状态和本地构建产物不会加入提交。
+脚本自动递增构建号、更新版本号、运行核心回归测试、生成并校验 Apple Silicon DMG，创建中文 Git 提交和版本标签，通过 SSH 原子推送到 GitHub，再等待 Actions 测试、构建并上传 Apple Silicon 安装包。发布完成时自动核对线上标签、版本说明和附件，并输出下载链接。Xcode 用户状态和本地构建产物不会加入提交。
 
 后续发布统一使用此脚本，校验由脚本和 Actions 自动执行。若提交完成后推送中断，运行 `./Scripts/publish_release.sh <版本号> --resume` 继续推送；若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；GitHub Actions 的发布工作流使用仓库自带的 `github.token`。
 

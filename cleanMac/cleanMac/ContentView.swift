@@ -247,6 +247,8 @@ struct ContentView: View {
                 isQuitting: viewModel.isQuittingUninstallApplications,
                 statusMessage: viewModel.uninstallStatusMessage,
                 selectedLeftoverPaths: $viewModel.selectedLeftoverPaths,
+                selectedAppPaths: Binding(get: { viewModel.selectedUninstallAppPaths },
+                                          set: { viewModel.updateUninstallAppSelection($0) }),
                 onQuit: { viewModel.quitUninstallRunningApplications() },
                 onRefresh: { viewModel.refreshUninstallRunningApplications() },
                 onConfirm: { viewModel.confirmUninstall() },
