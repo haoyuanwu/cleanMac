@@ -134,7 +134,7 @@ RELEASE_COMMIT_MESSAGE="发布 v1.0.11：完善设备监测与扫描交互并修
 
 脚本自动递增构建号、更新版本号、运行核心回归测试、生成并校验 Apple Silicon DMG，创建中文 Git 提交和版本标签，通过 SSH 原子推送到 GitHub，再等待 Actions 测试、构建并上传 Apple Silicon 安装包。发布完成时自动核对线上标签、版本说明和附件，并输出下载链接。Xcode 用户状态和本地构建产物不会加入提交。
 
-后续发布统一使用此脚本，校验由脚本和 Actions 自动执行。若提交完成后推送中断，运行 `./Scripts/publish_release.sh <版本号> --resume` 继续推送；若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；GitHub Actions 的发布工作流使用仓库自带的 `github.token`。
+后续发布统一使用此脚本，本机自动完成测试、构建、签名和镜像校验后，直接上传安装包；默认不触发云端构建。附件 SHA-256、大小及说明核对通过后才公开 Release。若提交完成后推送中断，运行 `./Scripts/publish_release.sh <版本号> --resume` 继续推送并上传已生成的本地安装包；若已推送后等待中断，运行 `./Scripts/publish_release.sh <版本号> --wait-only` 继续等待。若构建阶段失败，先修复问题并将项目版本号恢复到上个已发布版本后重新运行。需要可用的 GitHub SSH 推送权限；本地上传需要已登录的 GitHub CLI（`gh`）。仅在本机工具链不可用并显式指定 `--ci-only` 时，才手动触发 GitHub Actions 备用构建。
 
 ## 开发支持
 

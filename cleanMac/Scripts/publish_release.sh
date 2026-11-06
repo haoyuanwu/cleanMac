@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一键发布：准备版本 → Apple Silicon打包校验 → 中文提交 → 推送 → 等待 GitHub 发布。
+# 一键发布：本机测试、打包校验 → 中文提交和推送 → 直接上传并公开 Release。
 # 用法：./Scripts/publish_release.sh 1.0.8
 # 仅继续等待已推送的版本：./Scripts/publish_release.sh 1.0.8 --wait-only
 set -euo pipefail
@@ -10,7 +10,8 @@ cd "$REPO_ROOT"
 if [[ "${1:-}" = --help || "${1:-}" = -h ]]; then
   echo '用法：./Scripts/publish_release.sh <版本号> [--resume|--wait-only|--ci-only|--replace-assets]'
   echo '先编写 docs/releases/v<版本号>.md，按 1、2、3 编号。'
-  echo '--ci-only：本机工具链不可用时，仅在 GitHub Actions 中执行测试、构建与校验。'
+  echo '默认本机测试、打包校验并直接上传；--resume 可继续推送及上传。'
+  echo '--ci-only：显式启动 GitHub Actions 备用构建。'
   echo '可用 RELEASE_COMMIT_MESSAGE 覆盖默认中文提交信息。'
   exit 0
 fi
@@ -35,6 +36,10 @@ PUSH_URL="git@github.com:$REPOSITORY.git"
 
 if [[ "$MODE" = --replace-assets ]]; then
   exec bash "$APP_ROOT/Scripts/replace_release_assets.sh" "$VERSION"
+fi
+
+if [[ "$MODE" != --wait-only ]]; then
+  command -v gh >/dev/null || { echo '错误：上传 Release 需要 GitHub CLI（gh）' >&2; exit 1; }
 fi
 
 if [[ -z "$MODE" || "$MODE" = --ci-only ]]; then
@@ -119,8 +124,16 @@ PYVERSION
   else
     git tag -a "$TAG" -m "cleanMac ${VERSION}：详见 docs/releases/$TAG.md"
   fi
-  echo '==> 原子推送代码与标签，触发 GitHub Apple Silicon发布'
+  echo '==> 原子推送代码与标签'
   git push --atomic "$PUSH_URL" HEAD:refs/heads/main "refs/tags/$TAG:refs/tags/$TAG"
+fi
+if [[ "$MODE" = --ci-only ]]; then
+  echo '==> 手动触发备用云端构建'
+  gh workflow run release.yml --repo "$REPOSITORY" --ref "$TAG" -f "tag=$TAG"
+elif [[ "$MODE" != --wait-only ]]; then
+  echo '==> 复核本机安装包并直接上传 GitHub Release'
+  bash "$APP_ROOT/Scripts/make_dmg.sh" --verify-only "$VERSION"
+  python3 "$APP_ROOT/Scripts/upload_local_release.py" "$REPOSITORY" "$TAG" "$NOTES" "$APP_ROOT/build/cleanMac-arm64.dmg"
 fi
 COMMIT="$(git rev-list -n 1 "$TAG")"
 python3 "$APP_ROOT/Scripts/wait_for_release.py" "$REPOSITORY" "$TAG" "$COMMIT" "$NOTES"

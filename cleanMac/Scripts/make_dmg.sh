@@ -125,6 +125,20 @@ build_dmg() {
   ls -lh "$dmg"
 }
 
+if [[ "${1:-}" = --verify-only ]]; then
+  EXPECTED_VERSION="${2:?请传入待上传版本}"
+  EXPECTED_BUILD="$(python3 - "$ROOT/cleanMac.xcodeproj/project.pbxproj" "$EXPECTED_VERSION" <<'PYVERIFY'
+import pathlib,re,sys
+text=pathlib.Path(sys.argv[1]).read_text()
+versions=set(re.findall(r'MARKETING_VERSION = ([^;]+);',text))
+builds=set(re.findall(r'CURRENT_PROJECT_VERSION = (\d+);',text))
+if versions != {sys.argv[2]} or len(builds)!=1: raise SystemExit('项目版本或构建号不一致')
+print(next(iter(builds)))
+PYVERIFY
+)"
+  verify_dmg "$ROOT/build/cleanMac-arm64.dmg" arm64 "$EXPECTED_VERSION" "$EXPECTED_BUILD"
+  exit 0
+fi
 build_dmg arm64
 if [[ "$HAS_NOTARY" != 1 ]]; then
   echo "提示：安装包已完成完整性签名，但尚未通过 Apple 公证，下载后仍可能被 Gatekeeper 拦截。"

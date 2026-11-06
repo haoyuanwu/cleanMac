@@ -49,7 +49,7 @@ def main():
                         print(f'{name}：{assets[name]["browser_download_url"]}', flush=True)
                         print(f'  大小 {assets[name]["size"]} 字节，校验值 {assets[name].get("digest", "未提供")}', flush=True)
                     return
-            runs = request(f'repos/{repo}/actions/runs?head_sha={commit}&event=push&per_page=10')
+            runs = request(f'repos/{repo}/actions/runs?head_sha={commit}&per_page=10')
             matching = [run for run in (runs or {}).get('workflow_runs', [])
                         if run['head_sha'] == commit and run['path'] == '.github/workflows/release.yml']
             if matching:
