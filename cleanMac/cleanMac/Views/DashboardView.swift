@@ -114,9 +114,10 @@ struct DashboardView: View {
                                      if scanFinished { viewModel.requestSmartClean() } else { startScan() }
                                  })
             if scanning {
-                Text(activeScanPath ?? "正在准备扫描路径…").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
-                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 500, minHeight: 18)
-                    .help(activeScanPath ?? "正在准备扫描路径…")
+                ScanProgressFeedback(currentPath: activeScanPath,
+                    diagnostics: viewModel.scanResults.values.first(where: { $0.isScanning })?.diagnostics,
+                    collector: duplicateSession.isLoading ? duplicateSession.scanProgress : xcodeViewModel.isScanning ? xcodeViewModel.scanProgress : nil,
+                    startedAt: viewModel.scanStartedAt)
                     .transition(stateTransition)
             }
             if viewModel.isCleaning {

@@ -35,14 +35,22 @@ final class TrashMonitor: ObservableObject {
     private let notifiedKey = "com.cleanMac.trashWarning.notified"
     private let notifiedLimitKey = "com.cleanMac.trashWarning.notifiedLimitGB"
     private let notificationID = "cleanMac.trashWarning"
-    private let scanService = ScanService()
+    private let scanTrash: @MainActor () async -> TrashScanOutcome
+    private let notificationsEnabled: Bool
+    private let notificationCenter: NotificationCenter
+    private var changeSubscriptions: [AnyCancellable] = []
+    private var refreshPending = false
     private let cleanService = CleanService()
     private var timer: Timer?
     private var hasStarted = false
     private var notifiedAboveLimit: Bool
     private var isNotifying = false
 
-    private init() {
+    init(scanTrash: (@MainActor () async -> TrashScanOutcome)? = nil,
+         notificationsEnabled: Bool = true, notificationCenter: NotificationCenter = .default) {
+        self.scanTrash = scanTrash ?? { await ScanService().scanTrash() }
+        self.notificationsEnabled = notificationsEnabled
+        self.notificationCenter = notificationCenter
         let defaults = UserDefaults.standard
         let selectedLimit = TrashWarningLimit(rawValue: defaults.object(forKey: limitKey) as? Int ?? 10) ?? .gb10
         limit = selectedLimit
@@ -64,12 +72,18 @@ final class TrashMonitor: ObservableObject {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
+        changeSubscriptions = [Notification.Name("trashDidChange"), CleaningHistoryStore.didChange].map { name in
+            notificationCenter.publisher(for: name).receive(on: RunLoop.main).sink { [weak self] _ in
+                Task { @MainActor in await self?.refresh(force: true) }
+            }
+        }
         timer = Timer(timeInterval: 30 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh(force: true) }
         }
         if let timer { RunLoop.main.add(timer, forMode: .common) }
         Task {
             await refresh(force: true)
+            guard notificationsEnabled else { return }
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             await notifyIfNeeded()
         }
@@ -85,17 +99,19 @@ final class TrashMonitor: ObservableObject {
     }
 
     func refresh(force: Bool = false) async {
-        guard !isScanning, !isCleaning else { return }
+        guard !isScanning, !isCleaning else {
+            if force { refreshPending = true }
+            return
+        }
         if !force, let status, Date().timeIntervalSince(status.capturedAt) < 5 * 60 { return }
 
         isScanning = true
-        let result = await scanService.scanTrash()
-        status = TrashStatus(
-            bytes: result.items.reduce(0) { $0 + $1.size },
-            itemCount: result.items.count,
-            error: result.error,
-            capturedAt: Date()
-        )
+        repeat {
+            refreshPending = false
+            let result = await scanTrash()
+            let bytes = result.items.reduce(0) { $0 + $1.size }
+            status = TrashStatus(bytes: bytes, itemCount: result.items.count, error: result.error, capturedAt: Date())
+        } while refreshPending
         isScanning = false
         await notifyIfNeeded()
     }
@@ -106,7 +122,7 @@ final class TrashMonitor: ObservableObject {
         isCleaning = true
         actionMessage = nil
 
-        let latest = await scanService.scanTrash()
+        let latest = await scanTrash()
         if latest.error != nil {
             actionMessage = "无法读取部分废纸篓，请检查完全磁盘访问权限。"
         } else if latest.items.isEmpty {
@@ -124,6 +140,7 @@ final class TrashMonitor: ObservableObject {
     }
 
     private func notifyIfNeeded() async {
+        guard notificationsEnabled else { return }
         guard let status, status.error == nil else { return }
         guard let threshold = limit.bytes else {
             setNotified(false)

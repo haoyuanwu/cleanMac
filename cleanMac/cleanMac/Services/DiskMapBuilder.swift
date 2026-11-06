@@ -14,7 +14,7 @@ struct DiskMapNode: Identifiable, Hashable {
 
 enum DiskMapBuilder {
     /// 列出目录下的全部一级子项，按大小降序。
-    static func children(of path: String) async -> [DiskMapNode] {
+    static func children(of path: String, diagnostics: ScanDiagnosticsCollector? = nil) async -> [DiskMapNode] {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
@@ -25,12 +25,13 @@ enum DiskMapBuilder {
 
         var nodes: [DiskMapNode] = []
         for entry in entries {
+            diagnostics?.visit(entry.path)
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             let isDir = values?.isDirectory ?? false
             let size: Int64 = await Task.detached(priority: .utility) { () -> Int64 in
                 let p = entry.path
                 if isDir {
-                    return FileHelper.directorySize(p)
+                    return ScanContext.$diagnostics.withValue(diagnostics) { FileHelper.directorySize(p) }
                 }
                 let attrs = try? FileManager.default.attributesOfItem(atPath: p)
                 return (attrs?[.size] as? Int64) ?? 0

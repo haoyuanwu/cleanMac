@@ -2,6 +2,37 @@ import XCTest
 @testable import cleanMac
 
 final class DownloadInventoryTests: XCTestCase {
+    func testApplicationInventoryReusesUnchangedItemsAndRefreshesChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("Example.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let payload = contents.appendingPathComponent("payload")
+        try Data([1]).write(to: payload)
+        let service = ScanService(homeDirectory: root)
+        let first = await service.scanApplications(searchPaths: [root.path])
+        let second = await service.scanApplications(searchPaths: [root.path])
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(second.first?.size, 1)
+        if CacheEventMonitor.shared.token(for: app.path).available {
+            XCTAssertEqual(first.first?.id, second.first?.id)
+        }
+        try Data([1, 2, 3, 4]).write(to: payload)
+        CacheEventMonitor.shared.record(paths: [payload.path], eventLoss: false)
+        let updated = await service.scanApplications(searchPaths: [root.path])
+        XCTAssertEqual(updated.first?.size, 4)
+        XCTAssertNotEqual(first.first?.id, updated.first?.id)
+        CacheEventMonitor.shared.invalidateAll()
+        let invalidated = await service.scanApplications(searchPaths: [root.path])
+        XCTAssertNotEqual(updated.first?.id, invalidated.first?.id)
+        try FileManager.default.removeItem(at: app)
+        let replacement = root.appendingPathComponent("New.app")
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        let final = await service.scanApplications(searchPaths: [root.path])
+        XCTAssertEqual(final.map(\.path), [replacement.path])
+    }
+
     func testDownloadsIncludeEveryFileTypeRegardlessOfSize() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let downloads = home.appendingPathComponent("Downloads")

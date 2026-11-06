@@ -8,6 +8,7 @@ struct ContentView: View {
     @StateObject private var startupInspection = LocalInspectionSession()
     @StateObject private var privacyInspection = LocalInspectionSession()
     @StateObject private var extensionInspection = LocalInspectionSession()
+    @StateObject private var developmentSession = DevelopmentStorageSession()
     @StateObject private var insightsSession = SpaceInsightsSession()
     @StateObject private var diskMapSession = DiskMapSession()
     @StateObject private var deviceInformationViewModel = DeviceInformationViewModel()
@@ -59,7 +60,7 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             SidebarView(viewModel: viewModel, xcodeIsScanning: xcodeAnalysisViewModel.isScanning,
-                        diskMapIsLoading: diskMapSession.isLoading, selectedGroup: selectedGroup) { group in
+                        developmentIsBusy: developmentSession.busy, diskMapIsLoading: diskMapSession.isLoading, selectedGroup: selectedGroup) { group in
                 viewModel.showingSmartCleanReview = false
                 setPageTravel(toward: group)
                 withAnimation(navigationMotion) {
@@ -81,7 +82,7 @@ struct ContentView: View {
                         )
                         .id("smart-clean-review").transition(pageTransition)
                     } else if !showingPage {
-                        WorkspaceCardsView(group: selectedGroup, viewModel: viewModel,
+                        WorkspaceCardsView(group: selectedGroup, viewModel: viewModel, developmentSession: developmentSession,
                                            namespace: workspaceAnimation, onOpen: openDestination)
                             .id("cards-" + selectedGroup.id)
                             .transition(pageTransition)
@@ -317,6 +318,14 @@ struct ContentView: View {
             LocalInspectionView(kind: .privacy, session: privacyInspection)
         case .extensions:
             LocalInspectionView(kind: .extensions, session: extensionInspection)
+        case .packages:
+            DevelopmentStorageView(kind: .packages, session: developmentSession)
+        case .aiToolchain:
+            DevelopmentStorageView(kind: .ai, session: developmentSession)
+        case .containers:
+            DevelopmentStorageView(kind: .containers, session: developmentSession)
+        case .projectArtifacts:
+            DevelopmentStorageView(kind: .projects, session: developmentSession)
         case .insights:
             SpaceInsightsView(viewModel: viewModel, duplicateSession: duplicateScanSession, session: insightsSession)
         }

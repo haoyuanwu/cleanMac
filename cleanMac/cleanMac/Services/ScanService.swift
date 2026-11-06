@@ -10,6 +10,8 @@ struct TrashScanOutcome: Sendable {
 final class ScanService: @unchecked Sendable {
     nonisolated private let fileManager = ScanFileAccess()
     nonisolated private let homeDir: String
+    nonisolated private let applicationScanLock = NSLock()
+    nonisolated(unsafe) private var applicationInventory: [String: (token: CacheEventToken, item: FileItem)] = [:]
 
     nonisolated init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         homeDir = homeDirectory.path
@@ -233,49 +235,48 @@ final class ScanService: @unchecked Sendable {
     }
     
     // MARK: - 应用程序扫描
-    func scanApplications() async -> [FileItem] {
+    func scanApplications(searchPaths: [String]? = nil) async -> [FileItem] {
         await ScanTask.run { [weak self] in
             guard let self else { return [] }
-            var items: [FileItem] = []
-            
-            let appPaths = [
-                "/Applications",
-                "\(self.homeDir)/Applications"
-            ]
-            
-            for appPath in appPaths {
-                guard self.fileManager.fileExists(atPath: appPath) else { continue }
-                
-                if let contents = try? self.fileManager.contentsOfDirectory(atPath: appPath) {
-                    for item in contents where item.hasSuffix(".app") {
-                        let fullPath = (appPath as NSString).appendingPathComponent(item)
-                        
-                        // 计算应用大小
-                        let size = FileHelper.directorySize(fullPath)
-                        
-                        // 获取修改日期
-                        let attrs = try? self.fileManager.attributesOfItem(atPath: fullPath)
-                        let modDate = attrs?[.modificationDate] as? Date
-                        
-                        // 获取应用图标
-                        let appIcon = self.getAppIcon(for: fullPath)
-                        
-                        items.append(FileItem(
-                            path: fullPath,
-                            name: ApplicationNameResolver.displayName(atPath: fullPath),
-                            size: size,
-                            modificationDate: modDate,
-                            isDirectory: true,
-                            appIcon: appIcon
-                        ))
-                    }
-                }
-            }
-            
-            return items.sorted { $0.size > $1.size }
+            return self.scanApplicationInventory(searchPaths: searchPaths)
         }
     }
-    
+
+    /// 串行更新快照；仅在本进程持续监听期间复用，重启或事件丢失后重新计算。
+    nonisolated private func scanApplicationInventory(searchPaths: [String]?) -> [FileItem] {
+        applicationScanLock.lock()
+        defer { applicationScanLock.unlock() }
+        let monitor = CacheEventMonitor.shared
+        var next: [String: (token: CacheEventToken, item: FileItem)] = [:]
+        for appPath in searchPaths ?? ["/Applications", "\(homeDir)/Applications"] {
+            // 无法列出的目录不复用旧条目，避免展示已卸载的应用。
+            guard let contents = try? fileManager.contentsOfDirectory(atPath: appPath) else { continue }
+            for name in contents where name.hasSuffix(".app") {
+                let path = (appPath as NSString).appendingPathComponent(name)
+                let before = monitor.token(for: path)
+                if before.available, let cached = applicationInventory[path], cached.token == before {
+                    next[path] = cached
+                    continue
+                }
+                let size = FileHelper.directorySize(path)
+                let attributes = try? fileManager.attributesOfItem(atPath: path)
+                guard attributes != nil else { continue }
+                let item = FileItem(
+                    path: path,
+                    name: ApplicationNameResolver.displayName(atPath: path),
+                    size: size,
+                    modificationDate: attributes?[.modificationDate] as? Date,
+                    isDirectory: true,
+                    appIcon: getAppIcon(for: path)
+                )
+                // 保存扫描前版本，扫描期间有变化时下次必定重算。
+                next[path] = (before, item)
+            }
+        }
+        applicationInventory = next
+        return next.values.map(\.item).sorted { $0.size > $1.size }
+    }
+
     /// 获取应用图标
     nonisolated private func getAppIcon(for appPath: String) -> NSImage? {
         let icon = NSWorkspace.shared.icon(forFile: appPath)

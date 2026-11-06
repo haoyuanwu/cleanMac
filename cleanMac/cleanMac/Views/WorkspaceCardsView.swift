@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceCardsView: View {
     let group: WorkspaceGroup
     @ObservedObject var viewModel: MainViewModel
+    @ObservedObject var developmentSession: DevelopmentStorageSession
     let namespace: Namespace.ID
     let onOpen: (WorkspaceDestination) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -28,7 +29,11 @@ struct WorkspaceCardsView: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 210), spacing: 18),
                                          count: group.destinations.count > 4 ? 3 : 2), spacing: 18) {
                     ForEach(group.destinations) { destination in
-                        WorkspaceFeatureCard(destination: destination, result: result(for: destination)) {
+                        WorkspaceFeatureCard(destination: destination, result: result(for: destination),
+                            developmentReport: developerKind(destination).flatMap { developmentSession.reports[$0] },
+                            developmentBusy: developerKind(destination).flatMap { kind in
+                                developmentSession.loading == kind ? "正在扫描…" : developmentSession.cleaning == kind ? "正在处理…" : nil
+                            }) {
                             onOpen(destination)
                         }
                         .matchedGeometryEffect(id: destination.id, in: namespace,
@@ -65,6 +70,16 @@ struct WorkspaceCardsView: View {
         }
     }
 
+    private func developerKind(_ destination: WorkspaceDestination) -> DevelopmentStorageKind? {
+        switch destination {
+        case .page(.packages): .packages
+        case .page(.aiToolchain): .ai
+        case .page(.containers): .containers
+        case .page(.projectArtifacts): .projects
+        default: nil
+        }
+    }
+
     private func result(for destination: WorkspaceDestination) -> ScanResult? {
         guard case let .category(category) = destination else { return nil }
         return viewModel.scanResults[category]
@@ -74,6 +89,8 @@ struct WorkspaceCardsView: View {
 private struct WorkspaceFeatureCard: View {
     let destination: WorkspaceDestination
     let result: ScanResult?
+    let developmentReport: DevelopmentStorageReport?
+    let developmentBusy: String?
     let onOpen: () -> Void
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
@@ -113,6 +130,14 @@ private struct WorkspaceFeatureCard: View {
                 HStack(spacing: 8) {
                     if destination.group == .device {
                         DeviceFeatureSummary(destination: destination)
+                    } else if let developmentBusy {
+                        ProgressView().controlSize(.small)
+                        Text(developmentBusy)
+                    } else if let report = developmentReport {
+                        Text(report.diagnostics.status == .complete ? "\(report.entries.count) 个目录" : "结果不完整")
+                        Spacer(minLength: 4)
+                        Text(FileSizeFormatter.string(fromByteCount: report.entries.reduce(0) { $0 + $1.file.size }))
+                            .fontWeight(.semibold).monospacedDigit()
                     } else if result?.isScanning == true {
                         ProgressView().controlSize(.small)
                         Text("正在扫描…")

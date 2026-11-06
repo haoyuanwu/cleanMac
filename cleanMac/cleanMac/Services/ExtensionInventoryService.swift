@@ -32,7 +32,7 @@ nonisolated enum ExtensionInventoryService {
     static func scan(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                      sharedLibrary: URL = URL(fileURLWithPath: "/Library"),
                      applications: [ApplicationCacheScanner.InstalledApplication]? = nil) -> InspectionReport {
-        let collector = ScanDiagnosticsCollector()
+        let collector = ScanContext.diagnostics ?? ScanDiagnosticsCollector()
         return ScanContext.$diagnostics.withValue(collector) {
             var items: [InspectionItem] = []
             for profile in BrowserPrivacyService.profiles(home: home) {

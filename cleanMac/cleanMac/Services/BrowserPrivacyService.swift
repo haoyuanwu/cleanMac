@@ -24,7 +24,7 @@ nonisolated enum BrowserPrivacyService {
     }
     static func scan(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                      runningBundleIdentifiers: Set<String> = []) -> InspectionReport {
-        let collector = ScanDiagnosticsCollector()
+        let collector = ScanContext.diagnostics ?? ScanDiagnosticsCollector()
         return ScanContext.$diagnostics.withValue(collector) {
             var items: [InspectionItem] = []
             func add(_ url: URL, browser: BrowserCacheApplication, profile: String, kind: String, impact: String, shared: Bool = false) {

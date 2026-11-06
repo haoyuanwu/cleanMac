@@ -17,6 +17,7 @@ final class XcodeAnalysisViewModel: ObservableObject {
     @Published private(set) var pendingDeletion: [XcodeArtifact]?
     @Published var expandedKinds = Set<XcodeArtifactKind>()
 
+    var scanProgress = ScanDiagnosticsCollector()
     private let service = XcodeAnalysisService()
     private var scanTask: Task<Void, Never>?
 
@@ -24,9 +25,10 @@ final class XcodeAnalysisViewModel: ObservableObject {
         guard !isScanning, !isDeleting, pendingDeletion == nil else { return }
 
         selectedPaths.removeAll()
+        scanProgress = ScanDiagnosticsCollector()
         isScanning = true
         scanTask = Task { [service] in
-            let analysis = await service.analyze()
+            let analysis = await ScanContext.$diagnostics.withValue(scanProgress) { await service.analyze() }
             if Task.isCancelled { return }
             self.result = analysis
             self.isScanning = false

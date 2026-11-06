@@ -10,6 +10,10 @@ final class DiskMapSession: ObservableObject {
     @Published var volumeInfo: StorageInfo?
     @Published private(set) var loadingPaths: Set<String> = []
 
+    private var progressByPath: [String: ScanDiagnosticsCollector] = [:]
+    func progress(for path: String) -> ScanDiagnosticsCollector? { progressByPath[path] }
+    var activeProgress: ScanDiagnosticsCollector? { loadingPaths.sorted().first.flatMap { progressByPath[$0] } }
+
     private var directoryChildren: [String: [DiskMapNode]] = [:]
     private(set) var generation = 0
 
@@ -20,7 +24,7 @@ final class DiskMapSession: ObservableObject {
     func children(of path: String) async -> [DiskMapNode] {
         if let cached = directoryChildren[path] { return cached }
         let requestGeneration = generation
-        let children = await DiskMapBuilder.children(of: path)
+        let children = await DiskMapBuilder.children(of: path, diagnostics: progressByPath[path])
         if requestGeneration == generation {
             directoryChildren[path] = children
         }
@@ -28,6 +32,7 @@ final class DiskMapSession: ObservableObject {
     }
 
     func beginLoading(_ path: String) -> Int {
+        progressByPath[path] = ScanDiagnosticsCollector()
         loadingPaths.insert(path)
         isLoading = true
         return generation
@@ -36,6 +41,7 @@ final class DiskMapSession: ObservableObject {
     func finishLoading(_ path: String, generation requestGeneration: Int) {
         guard requestGeneration == generation else { return }
         loadingPaths.remove(path)
+        progressByPath[path] = nil
         isLoading = !loadingPaths.isEmpty
     }
 
@@ -45,6 +51,7 @@ final class DiskMapSession: ObservableObject {
         volumeInfo = nil
         stack.removeAll()
         directoryChildren.removeAll()
+        progressByPath.removeAll()
         loadingPaths.removeAll()
         isLoading = false
     }
@@ -95,7 +102,7 @@ struct DiskMapView: View {
                 }
                 bottomBar
             } else if session.isLoading {
-                ScanningPlaceholderView(title: "正在分析磁盘空间…", subtitle: "可切换其他页面，分析会在后台继续")
+                ScanningPlaceholderView(title: "正在分析磁盘空间…", subtitle: "可切换其他页面，分析会在后台继续", collector: session.activeProgress)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -343,7 +350,7 @@ struct DiskMapView: View {
             .padding(16)
             ZStack {
                 if isCurrentLoading {
-                    ScanningPlaceholderView(title: "正在分析目录…", subtitle: "正在读取目录与文件占用", animationHeight: 210)
+                    ScanningPlaceholderView(title: "正在分析目录…", subtitle: "正在读取目录与文件占用", animationHeight: 210, collector: session.progress(for: node.path))
                 } else if node.children.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "folder").font(.system(size: 32)).foregroundStyle(.secondary)

@@ -64,6 +64,14 @@ cleanMac 是一款原生 macOS 空间清理工具，重点解决开发环境占�
 
 要求 **macOS 13.5 或更新版本**。部分受系统保护的位置可能需要“完全磁盘访问”或操作时的管理员授权。发布包的签名与公证状态请以对应 Release 说明为准。
 
+### 更新后废纸篓权限失效
+
+当前发布包使用 ad-hoc 签名，macOS 的应用身份与具体构建的代码哈希关联。替换为另一次构建（包括相同版本号的不同构建）后，原有“完全磁盘访问”授权可能不再匹配。保持 Bundle ID 不变或重新打包 DMG 无法单独解决这一问题。详见 [Apple 的代码签名身份说明](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)。
+
+遇到此情况时，先完全退出 cleanMac，将新版本安装至 `/Applications/cleanMac.app`，再到“系统设置 → 隐私与安全性 → 完全磁盘访问”移除失效的旧 cleanMac 条目，重新添加“应用程序”中的 cleanMac 并开启权限，然后重新打开应用扫描。不要直接运行 DMG 内的副本进行授权。完全磁盘访问和管理员密码授权是两套不同机制。
+
+长期方案是使用同一开发者团队的 Developer ID Application 身份和稳定的 Bundle ID 签名后续版本，并完成 Apple 公证；签名身份稳定是跨版本匹配隐私授权的关键，公证本身不授予废纸篓访问权限。从 ad-hoc 切换到正式签名时，仍可能需要重新授权一次。详见 [签名与权限连续性说明](cleanMac/Design/signing-permission-continuity.md)。
+
 ### 首次打开与 macOS 安全设置
 
 当前安装包尚未经过 Apple 公证，首次打开可能被 macOS 拦截。请从本项目的 GitHub Releases 下载最新版本，再按需设置。

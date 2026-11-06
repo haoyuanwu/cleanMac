@@ -9,6 +9,7 @@ final class DuplicateScanSession: ObservableObject {
     @Published var hasScanned = false
     private var scanTask: Task<[DuplicateFileScanner.DuplicateGroup], Never>?
     private var generation = 0
+    var scanProgress = ScanDiagnosticsCollector()
 
     var totalWasted: Int64 { groups.reduce(0) { $0 + $1.wastedSize } }
 
@@ -17,12 +18,14 @@ final class DuplicateScanSession: ObservableObject {
             await scanTask?.value
             return
         }
+        scanProgress = ScanDiagnosticsCollector()
         isLoading = true
         generation += 1
         let requestGeneration = generation
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let roots = ["\(home)/Downloads", "\(home)/Documents", "\(home)/Desktop", "\(home)/Movies"]
-        let task = Task { await DuplicateFileScanner.findDuplicates(roots: roots) }
+        let progress = scanProgress
+        let task = Task { await DuplicateFileScanner.findDuplicates(roots: roots, diagnostics: progress) }
         scanTask = task
         let result = await task.value
         guard generation == requestGeneration else { return }
@@ -365,7 +368,7 @@ struct DuplicateFilesView: View {
 
     private var scanningState: some View {
         ScanningPlaceholderView(title: "正在扫描重复文件…",
-            subtitle: "下载 / 文稿 / 桌面 / 影片 · 单文件 ≥ 1MB")
+            subtitle: "下载 / 文稿 / 桌面 / 影片 · 单文件 ≥ 1MB", collector: session.scanProgress)
             .frame(maxWidth: .infinity, minHeight: 380)
     }
 

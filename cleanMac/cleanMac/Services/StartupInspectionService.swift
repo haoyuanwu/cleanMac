@@ -70,7 +70,7 @@ nonisolated enum StartupInspectionService {
     static func scan(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                      systemLibrary: URL = URL(fileURLWithPath: "/Library"), loginText: String? = nil,
                      includeAppleServices: Bool = false, appleLibrary: URL = URL(fileURLWithPath: "/System/Library")) -> InspectionReport {
-        let collector = ScanDiagnosticsCollector()
+        let collector = ScanContext.diagnostics ?? ScanDiagnosticsCollector()
         return ScanContext.$diagnostics.withValue(collector) {
             var items: [InspectionItem] = []
             var roots = [(home.appendingPathComponent("Library/LaunchAgents"), "用户 LaunchAgents"),

@@ -19,7 +19,7 @@ enum DuplicateFileScanner {
     /// 在给定根目录下扫描重复文件
     static func findDuplicates(
         roots: [String],
-        limitPerRoot: Int = 4000
+        limitPerRoot: Int = 4000, diagnostics: ScanDiagnosticsCollector? = nil
     ) async -> [DuplicateGroup] {
         let worker = Task.detached(priority: .userInitiated) { () -> [DuplicateGroup] in
             let fm = FileManager.default
@@ -38,6 +38,7 @@ enum DuplicateFileScanner {
                 // 在非 async 上下文中迭代 DirectoryEnumerator
                 while scanned < limitPerRoot && !Task.isCancelled {
                     guard let url = enumerator.nextObject() as? URL else { break }
+                    diagnostics?.visit(url.path)
                     let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
                     guard values?.isRegularFile == true else { continue }
                     let size = Int64(values?.fileSize ?? 0)
@@ -59,6 +60,7 @@ enum DuplicateFileScanner {
                     if Task.isCancelled { return [] }
                     nameByPath[item.path] = item.name
                     dateByPath[item.path] = item.date
+                    diagnostics?.visit(item.path)
                     if let hash = fileHash(at: item.path) {
                         byHash[hash, default: []].append(item.path)
                     }

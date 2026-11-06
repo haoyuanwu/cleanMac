@@ -98,12 +98,12 @@ class CleanService {
     }
     
     /// 清理单个文件
-    func cleanSingle(item: FileItem) throws {
+    nonisolated static func cleanSingle(item: FileItem, category: String = "单项清理") throws {
         let decision = DeleteDryRun.validate(path: item.path, context: "cleanSingle")
         guard decision.allowed else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: decision.reason])
         }
-        try CleaningHistoryStore.shared.moveToTrash(path: item.path, size: item.size, category: "单项清理")
+        try CleaningHistoryStore.shared.moveToTrash(path: item.path, size: item.size, category: category)
     }
     
     /// 清空废纸篓

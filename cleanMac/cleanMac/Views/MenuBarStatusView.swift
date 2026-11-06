@@ -44,7 +44,7 @@ struct MenuBarStatusView: View {
     @ObservedObject private var mainViewModel = MainViewModel.shared
     @ObservedObject private var deviceMonitor = DeviceStatusMonitor.shared
     private var status: DeviceQuickStatus? { deviceMonitor.snapshot?.quickStatus }
-    private var isRefreshing: Bool { deviceMonitor.isRefreshing }
+    private var isRefreshing: Bool { deviceMonitor.isRefreshing || trashMonitor.isScanning || trashMonitor.isCleaning }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,7 +89,12 @@ struct MenuBarStatusView: View {
         .background(Theme.reviewCanvas(.blue))
         .background(MenuBarPopupWindowReader(holder: popupWindowHolder))
         .task {
-            await trashMonitor.refresh()
+            // 打开即读取新数据；可见时轮询也能覆盖 Finder 中的移入、恢复和清空。
+            while !Task.isCancelled {
+                await trashMonitor.refresh(force: true)
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { break }
+            }
         }
 
     }
@@ -130,8 +135,9 @@ struct MenuBarStatusView: View {
             } else {
                 Button {
                     Task {
-                        await refresh()
-                        await trashMonitor.refresh(force: true)
+                        async let deviceRefresh: Void = refresh()
+                        async let trashRefresh: Void = trashMonitor.refresh(force: true)
+                        _ = await (deviceRefresh, trashRefresh)
                     }
                 } label: {
                     Image(systemName: "arrow.clockwise")

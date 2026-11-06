@@ -1,7 +1,7 @@
 import Foundation
 
 final class XcodeAnalysisService: @unchecked Sendable {
-    nonisolated(unsafe) private let fileManager = FileManager.default
+    nonisolated private let fileManager = ScanFileAccess()
     nonisolated private let home: String
 
     nonisolated init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
@@ -9,9 +9,7 @@ final class XcodeAnalysisService: @unchecked Sendable {
     }
 
     func analyze() async -> XcodeAnalysisResult {
-        await Task.detached(priority: .utility) { [self] in
-            scan()
-        }.value
+        await ScanTask.run { [self] in scan() }
     }
 
     nonisolated private func scan() -> XcodeAnalysisResult {

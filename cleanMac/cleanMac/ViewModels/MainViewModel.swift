@@ -240,9 +240,12 @@ class MainViewModel: ObservableObject {
     }
 
     /// 概览扫描仅覆盖清理项目；深度清理额外覆盖文件整理和应用程序。
+    private(set) var scanStartedAt: Date?
+
     func scanAll(scope: ScanScope = .overview, showDonationAfterCompletion: Bool = false) async {
         guard !isScanning else { return }
 
+        scanStartedAt = Date()
         cancelSmartClean()
         scanState = .scanning
         overallProgress = 0

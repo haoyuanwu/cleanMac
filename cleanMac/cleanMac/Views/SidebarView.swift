@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
     @ObservedObject var viewModel: MainViewModel
     let xcodeIsScanning: Bool
+    let developmentIsBusy: Bool
     let diskMapIsLoading: Bool
     let selectedGroup: WorkspaceGroup
     let onSelect: (WorkspaceGroup) -> Void
@@ -30,6 +31,10 @@ struct SidebarView: View {
         case privacy = "浏览器隐私"
         case extensions = "扩展与插件"
         case insights = "空间建议"
+        case packages = "包管理器"
+        case aiToolchain = "AI / 工具链"
+        case containers = "容器与虚拟机"
+        case projectArtifacts = "工程产物"
 
         var id: String { rawValue }
     }
@@ -104,7 +109,7 @@ struct SidebarView: View {
 
     private func isScanning(_ group: WorkspaceGroup) -> Bool {
         if group == .overview { return viewModel.isScanning || viewModel.isCleaning }
-        if group == .applications { return xcodeIsScanning || viewModel.scanResults[.applications]?.isScanning == true }
+        if group == .applications { return xcodeIsScanning || developmentIsBusy || viewModel.scanResults[.applications]?.isScanning == true }
         if group == .storage { return diskMapIsLoading }
         return group.destinations.contains { destination in
             guard case let .category(category) = destination else { return false }

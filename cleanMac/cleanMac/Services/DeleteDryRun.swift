@@ -65,6 +65,7 @@ enum DeleteDryRun {
 
     /// 是否落在常见可清理位置
     private nonisolated static func isLikelyDeletable(_ path: String) -> Bool {
+        if DevelopmentStorageScanner.isCleanablePath(path) { return true }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let allowedPrefixes = [
             home + "/Library",

@@ -218,7 +218,7 @@ struct XcodeAnalysisView: View {
     private var scanningState: some View {
         ScanningPlaceholderView(
             title: "正在分析 Xcode 数据…",
-            subtitle: "可切换其他页面，分析会在后台继续"
+            subtitle: "可切换其他页面，分析会在后台继续", collector: viewModel.scanProgress
         )
         .frame(maxWidth: .infinity, minHeight: 320)
     }

@@ -38,7 +38,7 @@ enum WorkspaceGroup: String, CaseIterable, Identifiable {
         case .device: return [.page(.applicationUsage), .page(.deviceCPU), .page(.deviceMemory), .page(.deviceConnections), .page(.deviceBattery), .page(.deviceStorage), .page(.deviceInfo)]
         case .cleanup: return ScanCategory.overviewScanCategories.map(WorkspaceDestination.category)
         case .files: return [.category(.downloads), .category(.largeFiles), .category(.installers), .page(.duplicates)]
-        case .applications: return [.category(.applications), .page(.xcode), .page(.startup), .page(.extensions)]
+        case .applications: return [.category(.applications), .page(.xcode), .page(.packages), .page(.aiToolchain), .page(.containers), .page(.projectArtifacts), .page(.startup), .page(.extensions)]
         case .storage: return [.page(.diskMap), .page(.timeline)]
         case .preferences: return [.page(.whitelist), .page(.settings), .page(.privacy)]
         }
@@ -77,6 +77,10 @@ enum WorkspaceDestination: Hashable, Identifiable {
         case .page(.deviceStorage): return "查看磁盘容量、已用空间与剩余容量"
         case .page(.duplicates): return "找出内容相同的文件，保留需要的那一份"
         case .page(.xcode): return "管理构建产物、模拟器与开发缓存"
+        case .page(.packages): return DevelopmentStorageKind.packages.subtitle
+        case .page(.aiToolchain): return DevelopmentStorageKind.ai.subtitle
+        case .page(.containers): return DevelopmentStorageKind.containers.subtitle
+        case .page(.projectArtifacts): return DevelopmentStorageKind.projects.subtitle
         case .page(.diskMap): return "用目录清单和空间地图逐层探索磁盘"
         case .page(.timeline): return "追踪磁盘占用，了解空间增长趋势"
         case .page(.whitelist): return "保护重要路径，让清理避开它们"
@@ -100,6 +104,10 @@ enum WorkspaceDestination: Hashable, Identifiable {
         case .page(.deviceStorage): return "internaldrive"
         case .page(.duplicates): return "doc.on.doc"
         case .page(.xcode): return "hammer"
+        case .page(.packages): return "shippingbox"
+        case .page(.aiToolchain): return "cpu"
+        case .page(.containers): return "externaldrive"
+        case .page(.projectArtifacts): return "hammer"
         case .page(.diskMap): return "chart.pie"
         case .page(.timeline): return "chart.line.uptrend.xyaxis"
         case .page(.whitelist): return "shield.lefthalf.filled"

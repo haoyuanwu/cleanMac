@@ -735,7 +735,7 @@ struct CategoryDetailView: View {
         ScanningPlaceholderView(
             title: "正在扫描 \(category.rawValue)",
             subtitle: "正在读取文件信息",
-            currentPath: result?.diagnostics?.currentPath ?? ""
+            diagnostics: result?.diagnostics
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -19,7 +19,7 @@ final class CacheEventMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var revisions: [String: UInt64] = [:]
 
     nonisolated private init() {
-        let roots = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library").path, "/Library/Caches", "/Library/Application Support", "/Library/Containers", "/Library/Group Containers"]
+        let roots = ["/Applications", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path, FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library").path, "/Library/Caches", "/Library/Application Support", "/Library/Containers", "/Library/Group Containers"]
         var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
         let callback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
             guard let info else { return }

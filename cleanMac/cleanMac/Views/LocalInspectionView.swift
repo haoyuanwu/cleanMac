@@ -5,6 +5,7 @@ import Combine
 final class LocalInspectionSession: ObservableObject {
     @Published var report: InspectionReport?
     @Published var loading = false
+    var scanProgress = ScanDiagnosticsCollector()
     @Published var includeAppleServices = false
     var scanTask: Task<Void, Never>?
 }
@@ -63,7 +64,7 @@ struct LocalInspectionView: View {
             if let statusMessage { Text(statusMessage).font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary).textSelection(.enabled) }
             if session.loading {
                 ScanningPlaceholderView(title: "正在扫描" + title,
-                    subtitle: "读取本机信息，不加载插件或启动被扫描的程序。")
+                    subtitle: "读取本机信息，不加载插件或启动被扫描的程序。", collector: session.scanProgress)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let report = session.report {
                 HStack {
@@ -210,15 +211,18 @@ struct LocalInspectionView: View {
         }
     }
     private func scan() {
+        session.scanProgress = ScanDiagnosticsCollector()
         session.loading = true; owner = "全部"; statusMessage = nil
         let runningIDs = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         let includeApple = session.includeAppleServices
         session.scanTask = Task {
-            let result = await ScanTask.run {
-                switch kind {
-                case .startup: StartupInspectionService.scan(includeAppleServices: includeApple)
-                case .privacy: BrowserPrivacyService.scan(runningBundleIdentifiers: runningIDs)
-                case .extensions: ExtensionInventoryService.scan()
+            let result = await ScanContext.$diagnostics.withValue(session.scanProgress) {
+                await ScanTask.run {
+                    switch kind {
+                    case .startup: StartupInspectionService.scan(includeAppleServices: includeApple)
+                    case .privacy: BrowserPrivacyService.scan(runningBundleIdentifiers: runningIDs)
+                    case .extensions: ExtensionInventoryService.scan()
+                    }
                 }
             }
             session.report = result; session.loading = false
