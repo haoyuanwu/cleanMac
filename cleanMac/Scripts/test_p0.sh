@@ -13,6 +13,7 @@ P0_LIBRARY_DIR="$P0_PLATFORM_DIR/usr/lib"
 xcrun --sdk macosx swiftc -sdk "$P0_SDK_PATH" -emit-library -emit-module -enable-testing -module-name cleanMac \
   -emit-module-path "$P0_TEST_DIR/cleanMac.swiftmodule" -o "$P0_TEST_DIR/libcleanMac.dylib" \
   cleanMac/Models/{FileItem,FileStorageMeasurement,CacheRuleCatalog,CacheApplication,BrowserCacheApplication,ScanCategory,ScanDiagnostics,ScanResult,LocalInspection,ApplicationResourceUsage,DeviceTelemetry,XcodeAnalysis,DevelopmentStorage}.swift \
+  cleanMac/ViewModels/DevelopmentStorageSession.swift \
   cleanMac/Helpers/{FileHelper,FileSizeFormatter}.swift \
   cleanMac/Services/{XcodeAnalysisService,ScanService,ScanFileAccess,ScanPathOwnership,CleaningHistoryStore,CleanService,PrivilegedTrashService,DeleteDryRun,ApplicationNameResolver,ApplicationCacheScanner,AppLeftoverScanner,ApplicationUninstallPreflight,CacheRuleStore,CacheScanIgnoreStore,DiskBubbleLayout,DiskMapSelectionPolicy,SafetyWhitelist,UserWhitelist,AppLog,SmartCleanService,StartupInspectionService,BrowserPrivacyService,ExtensionInventoryService,CacheEventMonitor,CacheScanIndex,LocalSpaceInsights,DuplicateFileScanner,TrashMonitor,DevelopmentStorageScanner}.swift
 
@@ -34,7 +35,7 @@ suite.addTest(DeviceTelemetryTests.defaultTestSuite)
 suite.addTest(TrashMonitorTests.defaultTestSuite)
 suite.addTest(DevelopmentStorageTests.defaultTestSuite)
 suite.run()
-guard let result = suite.testRun, result.executionCount == 175, result.totalFailureCount == 0 else { exit(1) }
+guard let result = suite.testRun, result.executionCount == 181, result.totalFailureCount == 0 else { exit(1) }
 SWIFT
 
 xcrun --sdk macosx swiftc -sdk "$P0_SDK_PATH" -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \

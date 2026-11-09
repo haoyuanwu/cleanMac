@@ -185,4 +185,109 @@ final class DevelopmentStorageTests: XCTestCase {
         XCTAssertNil(root.matching("not-a-real-directory"))
     }
 
+    func testInvertOnlyIncludesEligibleCurrentResultsAndIsReversible() {
+        let first = entry("first"), second = entry("second"), readOnly = entry("model", cleanable: false)
+        let entries = [first, second, readOnly]
+        XCTAssertEqual(DevelopmentStorageSelection.selectAll(entries), [first.id, second.id])
+        let inverted = DevelopmentStorageSelection.invert([first.id, readOnly.id, "hidden"], in: entries)
+        XCTAssertEqual(inverted, [second.id])
+        XCTAssertEqual(DevelopmentStorageSelection.invert(inverted, in: entries), [first.id])
+        XCTAssertTrue(DevelopmentStorageSelection.invert([first.id], in: []).isEmpty)
+    }
+    func testAIBulkSelectionIncludesCollapsedCacheChildrenButNotRoot() throws {
+        try write(".codex/cache/a")
+        try write(".codex/logs/a")
+        try write(".codex/sessions/a")
+        let report = DevelopmentStorageScanner.scan(.ai, home: home, environment: [:], includeDocker: false)
+        let all = report.entries.flatMap(\.descendants)
+        let selection = DevelopmentStorageSelection.selectAll(all)
+        XCTAssertEqual(selection.count, 2)
+        XCTAssertFalse(selection.contains(home.path + "/.codex"))
+        XCTAssertEqual(DevelopmentStorageSelection.targets(selection, visible: all).reduce(0) { $0 + $1.file.size }, 14)
+        XCTAssertTrue(DevelopmentStorageSelection.invert(selection, in: all).isEmpty)
+    }
+
+    private static func waitingScanner(_ kind: DevelopmentStorageKind, _ collector: ScanDiagnosticsCollector) -> DevelopmentStorageReport {
+        while !Task.isCancelled { Thread.sleep(forTimeInterval: 0.001) }
+        return .init(entries: [], diagnostics: collector.snapshot(finished: true, cancelled: true), docker: nil)
+    }
+    func testModulesCanScanConcurrentlyAndCancelIndependently() async {
+        let session = await MainActor.run { DevelopmentStorageSession(scanner: Self.waitingScanner) }
+        let both = await MainActor.run { () -> Bool in
+            session.scan(.projects); session.scan(.packages)
+            return session.loading == [.projects, .packages]
+        }
+        XCTAssertTrue(both)
+        await MainActor.run { session.cancelScan(.projects) }
+        for _ in 0..<200 {
+            if await MainActor.run(body: { !session.loading.contains(.projects) }) { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        let independent = await MainActor.run { () -> Bool in
+            let okay = !session.loading.contains(.projects) && session.loading.contains(.packages) && !session.cancelling.contains(.packages)
+            session.cancelScan(.packages)
+            return okay
+        }
+        XCTAssertTrue(independent)
+    }
+    func testSameModuleCannotStartDuplicateScan() async {
+        let session = await MainActor.run { DevelopmentStorageSession(scanner: Self.waitingScanner) }
+        let stable = await MainActor.run { () -> Bool in
+            session.scan(.packages)
+            let first = session.progress[.packages]?.startedAt
+            session.scan(.packages)
+            let okay = session.loading.count == 1 && session.progress[.packages]?.startedAt == first
+            session.cancelScan(.packages)
+            return okay
+        }
+        XCTAssertTrue(stable)
+    }
+
+    func testSuccessfulCleanupRemovesOnlyReviewedItemsAndEndsAnimation() async {
+        let first = entry("one"), second = entry("two")
+        let report = DevelopmentStorageReport(entries: [first, second], diagnostics: ScanDiagnosticsCollector().snapshot(finished: true), docker: nil)
+        let session = await MainActor.run { () -> DevelopmentStorageSession in
+            let session = DevelopmentStorageSession(cleaner: { _, _ in })
+            session.reports[.packages] = report
+            session.selections[.packages] = [first.id, second.id]
+            session.requestReview(.init(kind: .packages, entries: [first]))
+            session.confirmReview()
+            return session
+        }
+        let animating = await MainActor.run { session.cleaning == .packages && session.pendingReview == nil }
+        XCTAssertTrue(animating)
+        for _ in 0..<400 {
+            if await MainActor.run(body: { session.cleaning == nil }) { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        let state = await MainActor.run { (session.reports[.packages]?.entries.map(\.id), session.selections[.packages], session.celebrationToken, session.completionMessage, session.cleaning) }
+        XCTAssertEqual(state.0, [second.id])
+        XCTAssertEqual(state.1, [second.id])
+        XCTAssertEqual(state.2, 1)
+        XCTAssertNotNil(state.3)
+        XCTAssertNil(state.4)
+    }
+    func testFailedCleanupKeepsItemsAndDoesNotCelebrate() async {
+        let item = entry("one")
+        let report = DevelopmentStorageReport(entries: [item], diagnostics: ScanDiagnosticsCollector().snapshot(finished: true), docker: nil)
+        let session = await MainActor.run { () -> DevelopmentStorageSession in
+            let session = DevelopmentStorageSession(cleaner: { _, _ in throw CocoaError(.fileWriteNoPermission) })
+            session.reports[.projects] = report
+            session.selections[.projects] = [item.id]
+            session.requestReview(.init(kind: .projects, entries: [item]))
+            session.confirmReview()
+            return session
+        }
+        for _ in 0..<400 {
+            if await MainActor.run(body: { session.cleaning == nil }) { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        let state = await MainActor.run { (session.reports[.projects]?.entries.map(\.id), session.selections[.projects], session.celebrationToken, session.completionHadFailures, session.failures[.projects]?.count) }
+        XCTAssertEqual(state.0, [item.id])
+        XCTAssertEqual(state.1, [item.id])
+        XCTAssertEqual(state.2, 0)
+        XCTAssertTrue(state.3)
+        XCTAssertEqual(state.4, 1)
+    }
+
 }

@@ -156,6 +156,14 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(110)
             }
+            if let review = developmentSession.pendingReview {
+                TrashConfirmationOverlay(developmentReview: review,
+                    onConfirm: { developmentSession.confirmReview() },
+                    onCancel: { developmentSession.cancelReview() })
+                    .transition(.opacity).zIndex(110)
+            }
+            CelebrationBanner(token: developmentSession.celebrationToken)
+                .ignoresSafeArea().allowsHitTesting(false).zIndex(30)
             if let items = xcodeAnalysisViewModel.pendingDeletion {
                 TrashConfirmationOverlay(
                     xcodeArtifacts: items,
@@ -172,6 +180,10 @@ struct ContentView: View {
             } else if viewModel.isUninstalling {
                 SmartCleanCleaningOverlay(title: "正在卸载应用", subtitle: "正在将已确认的应用和关联数据移到废纸篓，请稍候")
                     .transition(.opacity).zIndex(120)
+            } else if let kind = developmentSession.cleaning {
+                SmartCleanCleaningOverlay(title: "正在清理" + kind.rawValue,
+                    subtitle: "正在将已确认的目录移到废纸篓，请稍候")
+                    .transition(.opacity).zIndex(120)
             } else if xcodeAnalysisViewModel.isDeleting {
                 SmartCleanCleaningOverlay(
                     title: "正在清理 Xcode 数据",
@@ -180,6 +192,12 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(120)
             }
+            ModalHostView(isPresented: developmentSession.completionMessage != nil,
+                onDismiss: { developmentSession.completionMessage = nil }) {
+                ModalDialogView(title: developmentSession.completionHadFailures ? "部分项目未能处理" : "清理完成",
+                    message: developmentSession.completionMessage ?? "", confirmTitle: "好的", showsCancel: false,
+                    onConfirm: { developmentSession.completionMessage = nil })
+            }.zIndex(125)
             if viewModel.showingDonationPrompt {
                 DonationOverlay {
                     viewModel.showingDonationPrompt = false
@@ -189,6 +207,8 @@ struct ContentView: View {
             }
             }
         }
+        .animation(Theme.ease, value: developmentSession.pendingReview?.id)
+        .animation(Theme.ease, value: developmentSession.cleaning)
         .task {
             await viewModel.loadStartupSnapshot()
             handlePendingOverviewScan()

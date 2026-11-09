@@ -18,6 +18,15 @@ struct TrashConfirmationOverlay: View {
         self.onCancel = onCancel
     }
 
+    init(developmentReview: DevelopmentStorageReview, onConfirm: @escaping () -> Void, onCancel: @escaping () -> Void) {
+        files = developmentReview.entries.map(\.file)
+        categoryName = developmentReview.kind.rawValue
+        isPermanent = false
+        additionalNote = "请先停止相关软件与开发任务，确认所选目录没有手写文件。目录及其全部内容将移入废纸篓，依赖和缓存可能需要重新下载或构建；清空废纸篓后才释放空间。"
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+    }
+
     init(xcodeArtifacts: [XcodeArtifact], onConfirm: @escaping () -> Void, onCancel: @escaping () -> Void) {
         files = xcodeArtifacts.map {
             FileItem(path: $0.path, name: $0.name, size: $0.size, modificationDate: nil,

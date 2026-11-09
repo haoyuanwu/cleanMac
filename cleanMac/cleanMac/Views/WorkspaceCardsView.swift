@@ -32,7 +32,7 @@ struct WorkspaceCardsView: View {
                         WorkspaceFeatureCard(destination: destination, result: result(for: destination),
                             developmentReport: developerKind(destination).flatMap { developmentSession.reports[$0] },
                             developmentBusy: developerKind(destination).flatMap { kind in
-                                developmentSession.loading == kind ? "正在扫描…" : developmentSession.cleaning == kind ? "正在处理…" : nil
+                                developmentSession.loading.contains(kind) ? "正在扫描…" : developmentSession.cleaning == kind ? "正在处理…" : nil
                             }) {
                             onOpen(destination)
                         }

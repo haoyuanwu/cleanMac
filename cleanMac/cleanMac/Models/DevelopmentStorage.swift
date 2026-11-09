@@ -43,7 +43,7 @@ nonisolated struct DevelopmentStorageEntry: Identifiable, Sendable {
 
     /// 保留软件根目录的单次统计，同时更新已清理子目录对应的占用。
     func removing(_ paths: Set<String>) -> DevelopmentStorageEntry? {
-        guard !paths.contains(id) else { return nil }
+        guard !paths.contains(where: { id == $0 || id.hasPrefix($0 + "/") }) else { return nil }
         let remaining = children.compactMap { $0.removing(paths) }
         let removedBytes = children.reduce(0) { $0 + $1.file.size } - remaining.reduce(0) { $0 + $1.file.size }
         guard remaining.flatMap(\.descendants).map(\.id) != children.flatMap(\.descendants).map(\.id) else { return self }
@@ -76,6 +76,12 @@ nonisolated enum DevelopmentStorageSelection {
             entry.cleanable && SafetyWhitelist.canDelete(path: entry.id)
                 && !protected.contains(where: { entry.id == $0 || entry.id.hasPrefix($0 + "/") || $0.hasPrefix(entry.id + "/") })
         }
+    }
+    static func selectAll(_ entries: [DevelopmentStorageEntry]) -> Set<String> {
+        Set(eligible(entries).map(\.id))
+    }
+    static func invert(_ selection: Set<String>, in entries: [DevelopmentStorageEntry]) -> Set<String> {
+        selectAll(entries).subtracting(selection)
     }
     static func reconcile(_ selection: Set<String>, visible: [DevelopmentStorageEntry]) -> Set<String> {
         selection.intersection(eligible(visible).map(\.id))

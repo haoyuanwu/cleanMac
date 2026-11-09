@@ -15,10 +15,15 @@ struct DevelopmentStorageView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var owner = "全部工具"
-    @State private var selected = Set<String>()
-    @State private var review: DevelopmentStorageReview?
+    private var selected: Set<String> {
+        get { session.selections[kind] ?? [] }
+        nonmutating set { session.selections[kind] = newValue }
+    }
     @State private var expanded = Set<String>()
-    @State private var expandedTools = Set<String>()
+    private var expandedTools: Set<String> {
+        get { session.expandedTools[kind] ?? [] }
+        nonmutating set { session.expandedTools[kind] = newValue }
+    }
     @State private var sortBySize = true
     private var report: DevelopmentStorageReport? { session.reports[kind] }
     private var allEntries: [DevelopmentStorageEntry] { report?.entries ?? [] }
@@ -34,6 +39,8 @@ struct DevelopmentStorageView: View {
         kind == .ai ? entries.filter { expandedTools.contains($0.owner) }.flatMap(\.descendants) : entries
     }
     private var eligible: [DevelopmentStorageEntry] { DevelopmentStorageSelection.eligible(visibleEntries) }
+    private var bulkEntries: [DevelopmentStorageEntry] { kind == .ai ? entries.flatMap(\.descendants) : entries }
+    private var bulkEligible: [DevelopmentStorageEntry] { DevelopmentStorageSelection.eligible(bulkEntries) }
     private var targets: [DevelopmentStorageEntry] { DevelopmentStorageSelection.targets(selected, visible: visibleEntries) }
     private var canClean: Bool { kind == .packages || kind == .projects || kind == .ai }
     private var aiOwners: [String] {
@@ -50,14 +57,14 @@ struct DevelopmentStorageView: View {
     private var tint: Color {
         switch kind { case .packages: .indigo; case .ai: .purple; case .containers: .blue; case .projects: .orange }
     }
-    private var showingResults: Bool { report != nil && session.loading != kind }
+    private var showingResults: Bool { report != nil && !session.loading.contains(kind) }
     private var motion: Animation { reduceMotion ? .linear(duration: 0.01) : Theme.ease }
 
     var body: some View {
         GeometryReader { viewport in
             VStack(alignment: .leading, spacing: showingResults ? 7 : 12) {
                 header
-                if session.loading == kind {
+                if session.loading.contains(kind) {
                     scanning.frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
                 } else if let report {
@@ -71,19 +78,10 @@ struct DevelopmentStorageView: View {
             .frame(maxWidth: 920)
             .padding(.horizontal, 28).padding(.top, showingResults ? 4 : 10).padding(.bottom, showingResults ? 4 : 12)
             .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
-            .animation(motion, value: session.loading == kind)
+            .animation(motion, value: session.loading.contains(kind))
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if report != nil, session.loading != kind { footer }
-        }
-        .sheet(item: $review) { snapshot in
-            DevelopmentStorageReviewSheet(review: snapshot) {
-                review = nil
-            } confirm: {
-                review = nil
-                selected.subtract(snapshot.entries.map(\.id))
-                session.clean(snapshot)
-            }
+            if report != nil, !session.loading.contains(kind) { footer }
         }
         .onChange(of: query) { _ in
             if kind == .ai, !query.isEmpty { expandedTools.formUnion(entries.map(\.owner)) }
@@ -93,7 +91,7 @@ struct DevelopmentStorageView: View {
         .onChange(of: allEntries.flatMap(\.descendants).map(\.id)) { _ in reconcile() }
         .onChange(of: expandedTools) { _ in reconcile() }
         .onChange(of: kind) { _ in
-            selected.removeAll(); expanded.removeAll(); expandedTools.removeAll(); query = ""; owner = "全部工具"; review = nil
+            expanded.removeAll(); query = ""; owner = "全部工具"
         }
     }
 
@@ -122,7 +120,7 @@ struct DevelopmentStorageView: View {
                     Text(FileSizeFormatter.string(fromByteCount: allEntries.reduce(0) { $0 + $1.file.size }))
                         .font(.system(size: 21, weight: .bold, design: .rounded)).monospacedDigit()
                 }.fixedSize().help("已发现目录的逻辑大小，包含其缓存子目录，不等于可回收空间。")
-                DetailTextButton(title: "重新扫描", systemImage: "arrow.clockwise", action: scan).disabled(session.busy)
+                DetailTextButton(title: "重新扫描", systemImage: "arrow.clockwise", action: scan).disabled(session.busy(for: kind))
             }
         }
     }
@@ -148,36 +146,38 @@ struct DevelopmentStorageView: View {
             Button(action: scan) {
                 Label("开始扫描", systemImage: "magnifyingglass")
                     .font(.system(size: 15, weight: .semibold)).padding(.horizontal, 24).padding(.vertical, 12)
-            }.buttonStyle(GradientButtonStyleCompact()).disabled(session.busy)
+            }.buttonStyle(GradientButtonStyleCompact()).disabled(session.busy(for: kind))
             Text(canClean ? "扫描后手动选择目录 · 不会自动清理" : "仅盘点占用 · 在所属工具中管理")
                 .font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
-            if session.busy { Text("其他模块正在处理任务，请稍候。 ").font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary) }
+            if session.busy(for: kind) { Text("当前模块正在处理任务，请稍候。").font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary) }
         }.padding(.vertical, 24)
     }
     private var scanning: some View {
         VStack(spacing: 16) {
-            ScanningPlaceholderView(title: session.cancelling ? "正在取消扫描…" : "正在扫描" + kind.rawValue + "…",
+            ScanningPlaceholderView(title: session.cancelling.contains(kind) ? "正在取消扫描…" : "正在扫描" + kind.rawValue + "…",
                 subtitle: "仅统计文件元数据，可切换页面，扫描会在后台继续。",
-                diagnostics: session.progress)
-            Button(session.cancelling ? "正在取消…" : "取消扫描", action: session.cancelScan)
-                .disabled(session.cancelling).controlSize(.regular)
+                diagnostics: session.progress[kind])
+            Button(session.cancelling.contains(kind) ? "正在取消…" : "取消扫描", action: { session.cancelScan(kind) })
+                .disabled(session.cancelling.contains(kind)).controlSize(.regular)
         }
     }
     @ViewBuilder private func results(_ report: DevelopmentStorageReport) -> some View {
         let selectableIDs = Set(eligible.map(\.id))
         filters
         HStack {
-            Text(kind == .ai ? "\(aiOwners.count) 个软件 · 展开后选择缓存目录" : "\(entries.count) / \(allEntries.count) 个目录").font(.system(size: 12, weight: .medium))
+            Text(kind == .ai ? "\(aiOwners.count) 个软件 · 可展开缓存目录" : "\(entries.count) / \(allEntries.count) 个目录").font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DevelopmentStoragePalette.secondary)
             Spacer()
             if canClean {
-                Button(eligible.isEmpty || !eligible.allSatisfy({ selected.contains($0.id) }) ? "选择当前结果" : "取消当前选择") {
-                    withAnimation(motion) {
-                        if !eligible.isEmpty, eligible.allSatisfy({ selected.contains($0.id) }) { selected.removeAll() }
-                        else { selected = Set(eligible.map(\.id)) }
-                    }
-                }.buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).disabled(eligible.isEmpty || session.busy)
-                .help("仅选择当前筛选结果中允许清理的目录")
+                Button {
+                    if targets.isEmpty { selectAll() } else { invertSelection() }
+                } label: {
+                    Label(targets.isEmpty ? "全选" : "反选",
+                          systemImage: targets.isEmpty ? "checkmark.square" : "arrow.triangle.2.circlepath")
+                }.keyboardShortcut("a", modifiers: .command)
+                    .help(targets.isEmpty ? "全选当前筛选结果中的可清理目录，AI 软件组会自动展开（⌘A）" : "反选当前筛选结果中的可清理目录（⌘A）")
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .font(.system(size: 12, weight: .medium)).disabled(bulkEligible.isEmpty || session.busy(for: kind))
             } else { Label("仅查看", systemImage: "eye").font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary) }
         }
         ScrollView {
@@ -212,7 +212,7 @@ struct DevelopmentStorageView: View {
     }
     private func storageRow(_ entry: DevelopmentStorageEntry, selectableIDs: Set<String>) -> some View {
         DevelopmentStorageRow(entry: entry, kind: kind, isSelected: selected.contains(entry.id),
-            selectable: selectableIDs.contains(entry.id), busy: session.busy,
+            selectable: selectableIDs.contains(entry.id), busy: session.busy(for: kind),
             isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }, expand: {
                 withAnimation(motion) {
                     if !expanded.insert(entry.id).inserted { expanded.remove(entry.id) }
@@ -230,14 +230,14 @@ struct DevelopmentStorageView: View {
                     Divider()
                     Button(selected.contains(entry.id) ? "取消选择此目录" : "选择此目录", systemImage: "checkmark.circle") {
                         toggle(entry.id)
-                    }.disabled(session.busy)
+                    }.disabled(session.busy(for: kind))
                     Button("移到废纸篓…", systemImage: "trash", role: .destructive) {
                         reviewEntries([entry])
-                    }.disabled(session.busy)
+                    }.disabled(session.busy(for: kind))
                     if selected.contains(entry.id), targets.count > 1 {
                         Button("检查所选 \(targets.count) 项…", systemImage: "checklist") {
                             reviewEntries(targets)
-                        }.disabled(session.busy)
+                        }.disabled(session.busy(for: kind))
                     }
                 }
             }
@@ -271,7 +271,7 @@ struct DevelopmentStorageView: View {
                             if caches.allSatisfy({ selected.contains($0.id) }) { selected.subtract(caches.map(\.id)) }
                             else { selected.formUnion(caches.map(\.id)) }
                         }
-                    }.font(.system(size: 12)).disabled(session.busy)
+                    }.font(.system(size: 12)).disabled(session.busy(for: kind))
                 }
             }.padding(14).gradientGlass(cornerRadius: 12)
             .contextMenu {
@@ -289,11 +289,11 @@ struct DevelopmentStorageView: View {
                             expandedTools.insert(tool)
                             selected.formUnion(caches.map(\.id))
                         }
-                    }.disabled(session.busy)
+                    }.disabled(session.busy(for: kind))
                     if caches.contains(where: { selected.contains($0.id) }) {
                         Button("取消此软件的缓存选择", systemImage: "circle") {
                             withAnimation(motion) { selected.subtract(caches.map(\.id)) }
-                        }.disabled(session.busy)
+                        }.disabled(session.busy(for: kind))
                     }
                 }
             }
@@ -335,7 +335,7 @@ struct DevelopmentStorageView: View {
                 Button("按工具名称") { sortBySize = false }
             } label: { Label(sortBySize ? "按大小" : "按名称", systemImage: "arrow.up.arrow.down") }
                 .fixedSize()
-        }.font(.system(size: 12)).disabled(session.cleaning != nil)
+        }.font(.system(size: 12)).disabled(session.cleaning == kind)
     }
     private var emptyResults: some View {
         VStack(spacing: 10) {
@@ -355,43 +355,73 @@ struct DevelopmentStorageView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16).gradientGlass(cornerRadius: 14)
         .contextMenu {
             Button("复制 Docker 报告", systemImage: "doc.on.doc") { copyText(text) }
-            Button("重新扫描", systemImage: "arrow.clockwise", action: scan).disabled(session.busy)
+            Button("重新扫描", systemImage: "arrow.clockwise", action: scan).disabled(session.busy(for: kind))
         }
     }
     private var footer: some View {
-        HStack(spacing: 12) {
-            if session.cleaning == kind {
-                ProgressView().controlSize(.small)
-                Text("正在移到废纸篓…").font(.system(size: 13, weight: .semibold))
-            } else if canClean {
-                Text("已选 \(targets.count) 项 · \(FileSizeFormatter.string(fromByteCount: targets.reduce(0) { $0 + $1.file.size }))")
-                    .font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                Image(systemName: "info.circle")
-                    .font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
-                    .help(kind == .ai ? "仅清理所选缓存目录；收起软件或筛选会取消隐藏项。" : "仅作用于当前结果；更改筛选会取消隐藏项的选择。")
-                    .accessibilityLabel("仅操作当前结果中的已选目录，筛选会取消隐藏项的选择")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                listSummary
                 Spacer(minLength: 8)
-                if !targets.isEmpty {
-                    Button("取消选择") { withAnimation(motion) { selected.removeAll() } }.buttonStyle(.plain).font(.system(size: 12))
-                }
-                DetailTextButton(title: "检查所选项目", systemImage: "checklist") {
-                    review = DevelopmentStorageReview(kind: kind, entries: targets)
-                }.disabled(targets.isEmpty || session.busy)
-            } else {
-                Label("模型、工具链与虚拟机可能包含唯一数据，请在所属工具中管理。", systemImage: "eye")
-                    .font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
+                selectionSummary
             }
-        }.frame(maxWidth: 920, minHeight: 38).padding(.horizontal, 28).padding(.vertical, 3)
-            .frame(maxWidth: .infinity).background(Theme.inlineSurface)
-            .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-            .animation(motion, value: targets.count)
+            VStack(spacing: 6) {
+                selectionSummary
+                listSummary
+            }
+        }
+        .frame(maxWidth: 920).padding(.horizontal, 28).padding(.vertical, targets.isEmpty ? 8 : 6)
+        .frame(maxWidth: .infinity).background(Theme.surfaceSunk.opacity(0.5))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .animation(motion, value: targets.count)
+    }
+    private var listSummary: some View {
+        HStack(spacing: 6) {
+            Text(canClean ? "可选 \(bulkEligible.count) 个目录" : "当前 \(entries.count) 个目录")
+            Text("·")
+            Text(FileSizeFormatter.string(fromByteCount: (canClean ? bulkEligible : entries).reduce(0) { $0 + $1.file.size }))
+                .fontWeight(.semibold).monospacedDigit()
+        }.font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
+            .fixedSize().accessibilityElement(children: .combine)
+            .help(canClean ? "当前筛选结果中可清理目录的逻辑大小，不含只读数据；AI 软件总目录与缓存不重复计数。" : "当前结果的逻辑大小，不代表可回收空间。")
+    }
+    @ViewBuilder private var selectionSummary: some View {
+        if session.cleaning == kind {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("正在移到废纸篓…").font(.system(size: 12))
+            }
+        } else if canClean, !targets.isEmpty {
+            SelectionSummaryCapsule(count: targets.count,
+                totalSize: targets.reduce(0) { $0 + $1.file.size },
+                actionTitle: "检查所选项目", isBusy: session.busy(for: kind),
+                onClear: { withAnimation(motion) { selected.removeAll() } },
+                onDelete: { reviewEntries(targets) })
+                .transition(.opacity)
+        } else if !canClean {
+            Label("仅查看", systemImage: "eye").font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
+        }
+    }
+    private func selectAll() {
+        guard !session.busy(for: kind) else { return }
+        withAnimation(motion) {
+            if kind == .ai { expandedTools.formUnion(bulkEligible.map(\.owner)) }
+            selected = DevelopmentStorageSelection.selectAll(bulkEntries)
+        }
+    }
+    private func invertSelection() {
+        guard !session.busy(for: kind) else { return }
+        withAnimation(motion) {
+            if kind == .ai { expandedTools.formUnion(bulkEligible.map(\.owner)) }
+            selected = DevelopmentStorageSelection.invert(selected, in: bulkEntries)
+        }
     }
     /// 右键操作的单项目范围固定为点击的目录，不隐式合并页面中其他选择。
     private func reviewEntries(_ candidates: [DevelopmentStorageEntry]) {
-        guard !session.busy else { return }
+        guard !session.busy(for: kind) else { return }
         let allowed = DevelopmentStorageSelection.eligible(candidates)
         guard !allowed.isEmpty else { return }
-        review = DevelopmentStorageReview(kind: kind, entries: allowed)
+        session.requestReview(DevelopmentStorageReview(kind: kind, entries: allowed))
     }
     private func reveal(_ entries: [DevelopmentStorageEntry]) {
         NSWorkspace.shared.activateFileViewerSelecting(entries.map { $0.file.pathURL })
@@ -402,12 +432,12 @@ struct DevelopmentStorageView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
     private func scan() {
-        selected.removeAll(); expanded.removeAll(); review = nil
+        selected.removeAll(); expanded.removeAll()
         session.scan(kind)
     }
     private func reconcile() { selected = DevelopmentStorageSelection.reconcile(selected, visible: visibleEntries) }
     private func toggle(_ id: String) {
-        guard !session.busy else { return }
+        guard !session.busy(for: kind) else { return }
         withAnimation(motion) { if !selected.insert(id).inserted { selected.remove(id) } }
     }
 }
@@ -484,43 +514,5 @@ private struct DevelopmentStorageRow: View {
             RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Color.primary.opacity(0.6) : Theme.cardStroke, lineWidth: isSelected ? 1.5 : 1)
         }
         .onHover { hovered = $0 }
-    }
-}
-
-private struct DevelopmentStorageReviewSheet: View {
-    let review: DevelopmentStorageReview
-    let cancel: () -> Void
-    let confirm: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("检查所选项目", systemImage: "checklist").font(.system(size: 20, weight: .bold, design: .rounded))
-            Text("\(review.kind.rawValue) · \(review.entries.count) 个目录 · \(FileSizeFormatter.string(fromByteCount: review.totalSize))")
-                .font(.system(size: 14, weight: .semibold))
-            Text("只处理下列目录及其全部内容。请先停止相关开发任务，并确认目录中没有手写文件。")
-                .font(.system(size: 13)).foregroundStyle(DevelopmentStoragePalette.secondary)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(review.entries) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(entry.owner + " · " + entry.file.name).fontWeight(.semibold)
-                                Spacer()
-                                Text(entry.file.sizeFormatted).monospacedDigit()
-                            }
-                            Text(entry.file.path).foregroundStyle(DevelopmentStoragePalette.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        }.font(.system(size: 12))
-                        Divider()
-                    }
-                }
-            }.frame(maxHeight: 260)
-            Text("依赖和缓存可能需要重新下载或构建。项目会移到废纸篓，清空后才释放空间；未选目录不会处理。")
-                .font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
-            HStack {
-                Button("返回检查", action: cancel).keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("移到废纸篓（\(review.entries.count) 项）", role: .destructive, action: confirm)
-                    .buttonStyle(.borderedProminent)
-            }
-        }.padding(24).frame(width: 600).background(Theme.surfaceRaised)
     }
 }
