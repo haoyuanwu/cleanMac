@@ -15,7 +15,9 @@ def release(repo, tag):
     result = subprocess.run(['gh', 'api', f'repos/{repo}/releases/tags/{tag}'], text=True, capture_output=True)
     if result.returncode:
         if 'HTTP 404' in result.stderr:
-            return None
+            # 按标签接口只保证公开版本可见；草稿需从认证后的 Release 列表查找。
+            pages = json.loads(gh('api', f'repos/{repo}/releases?per_page=100', '--paginate', '--slurp'))
+            return next((info for page in pages for info in page if info['tag_name'] == tag), None)
         raise RuntimeError(result.stderr.strip())
     return json.loads(result.stdout)
 

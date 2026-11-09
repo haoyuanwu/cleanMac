@@ -55,8 +55,16 @@ class UploadTests(unittest.TestCase):
             with patch.object(uploader.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', status)):
                 with self.assertRaises(RuntimeError):
                     uploader.release('owner/repo', 'v9.9.9')
-        with patch.object(uploader.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'HTTP 404')):
+        with patch.object(uploader.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 1, '', 'HTTP 404'), subprocess.CompletedProcess([], 0, '[[]]', '')]):
             self.assertIsNone(uploader.release('owner/repo', 'v9.9.9'))
+
+    def testDraftIsFoundWhenTagEndpointReturns404(self):
+        import subprocess
+        import json
+        with patch.object(uploader.subprocess, 'run', side_effect=[
+            subprocess.CompletedProcess([], 1, '', 'HTTP 404'),
+            subprocess.CompletedProcess([], 0, json.dumps([[self.info]]), '')]):
+            self.assertEqual(uploader.release('owner/repo', 'v9.9.9'), self.info)
 
 
 if __name__ == '__main__':
