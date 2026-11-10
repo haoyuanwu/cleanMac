@@ -42,7 +42,11 @@ sign_app() {
   local app="$1" code
   while IFS= read -r -d '' code; do
     if /usr/bin/file -b "$code" | /usr/bin/grep -q 'Mach-O'; then
-      codesign "${SIGN_OPTIONS[@]}" "$code"
+      if [[ "$code" = */Library/HelperTools/cleanMacMemoryHelper ]]; then
+        codesign "${SIGN_OPTIONS[@]}" --identifier "$BUNDLE_ID.memory-helper" "$code"
+      else
+        codesign "${SIGN_OPTIONS[@]}" "$code"
+      fi
     fi
   done < <(find "$app/Contents" -type f -print0)
   while IFS= read -r -d '' code; do
@@ -68,6 +72,21 @@ verify_dmg() {
     test "$(plutil -extract CFBundleVersion raw -o - "$local_app/Contents/Info.plist")" = "$expected_build"
     actual_arch="$(lipo -archs "$local_app/Contents/MacOS/$APP_NAME")"
     test "$actual_arch" = "$expected_arch"
+    helper="$local_app/Contents/Library/HelperTools/cleanMacMemoryHelper"
+    test -x "$helper"
+    test "$(lipo -archs "$helper")" = arm64
+    codesign --verify --strict --verbose=2 "$helper"
+    codesign -d --verbose=2 "$helper" 2>&1 | /usr/bin/grep -Fx "Identifier=$BUNDLE_ID.memory-helper"
+    test "$(plutil -extract BundleProgram raw -o - "$local_app/Contents/Library/LaunchDaemons/$BUNDLE_ID.memory-helper.plist")" = "Contents/Library/HelperTools/cleanMacMemoryHelper"
+    if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+      app_team="$(codesign -dv "$local_app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+      helper_team="$(codesign -dv "$helper" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+      test -n "$app_team"
+      test "$app_team" = "$helper_team"
+      requirement="=anchor apple generic and certificate leaf[subject.OU] = \"$app_team\" and ! (entitlement[\"com.apple.security.get-task-allow\"] exists)"
+      codesign --verify -R "$requirement" "$local_app"
+      codesign --verify -R "$requirement" "$helper"
+    fi
     if [[ "$HAS_NOTARY" = 1 ]]; then
       xcrun stapler validate "$dmg"
       spctl --assess --type execute --verbose=2 "$local_app"

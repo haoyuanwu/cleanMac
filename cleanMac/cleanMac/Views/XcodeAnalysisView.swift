@@ -128,13 +128,10 @@ struct XcodeAnalysisView: View {
         return Button {
             viewModel.toggleSelectAll(in: kind)
         } label: {
-            Capsule()
-                .fill(allSelected ? Color.accentColor : Color.secondary.opacity(selectedCount > 0 ? 0.7 : 0.35))
-                .frame(width: 4, height: kind == nil ? 20 : 32)
-                .frame(width: 20, height: 36)
-                .contentShape(Rectangle())
+            Image(systemName: allSelected ? "checkmark.square.fill" : selectedCount > 0 ? "minus.square.fill" : "square")
+                .font(.system(size: 16, weight: .medium))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ReadableControlButtonStyle(selected: allSelected, iconOnly: true, tint: .indigo))
         .accessibilityValue("已选 \(selectedCount) 项，共 \(items.count) 项可选择")
         .disabled(items.isEmpty || viewModel.isScanning || viewModel.isDeleting)
         .accessibilityLabel("\(allSelected ? "取消全选" : "全选")\(kind?.rawValue ?? "所有分类")中的可删除项目")
@@ -392,7 +389,7 @@ struct XcodeAnalysisView: View {
                     .font(.system(size: 12))
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: .blue))
             .help("在 Finder 中显示")
             .accessibilityLabel("在 Finder 中显示 \(item.name)")
         }

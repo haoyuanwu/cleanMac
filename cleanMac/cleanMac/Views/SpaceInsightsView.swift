@@ -23,7 +23,7 @@ struct SpaceInsightsView: View {
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("更新建议", action: refresh).disabled(session.generating).buttonStyle(.borderedProminent)
+                Button("更新建议", action: refresh).disabled(session.generating).buttonStyle(ReadableControlButtonStyle(prominent: true))
             }
             Text("先在应用缓存、大文件和重复文件页面完成扫描。缓存增长需要两次相同规则下的完整扫描。")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -31,6 +31,7 @@ struct SpaceInsightsView: View {
             if let generatedAt = session.generatedAt { Text("生成于 \(generatedAt.formatted())；扫描更新后请重新生成。") .font(.system(size: 12)).foregroundStyle(.secondary) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
+                    StorageGrowthSourcesView(viewModel: viewModel)
                     if session.insights.isEmpty, !session.generating { Text("当前没有足够数据生成建议，请先完成相关扫描。") .font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 30) }
                     ForEach(session.insights) { insight in
                         VStack(alignment: .leading, spacing: 10) {

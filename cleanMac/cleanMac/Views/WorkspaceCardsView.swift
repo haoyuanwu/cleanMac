@@ -20,10 +20,9 @@ struct WorkspaceCardsView: View {
                         Text(group.subtitle).font(.system(size: 13)).foregroundStyle(Theme.navigationSecondary)
                     }
                     Spacer(minLength: 12)
-                    Image(systemName: group.symbol)
-                        .font(.system(size: 28, weight: .medium)).foregroundStyle(Theme.accentGradient)
-                        .frame(width: 64, height: 64)
-                        .background(Theme.accentGradientSoft, in: RoundedRectangle(cornerRadius: 20))
+                    WorkspaceModuleIcon(group: group)
+                        .frame(width: 30, height: 30)
+                        .moduleIconPlate(tint: group.tint, size: 64, radius: 20)
                         .accessibilityHidden(true)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 210), spacing: 18),
@@ -107,17 +106,14 @@ private struct WorkspaceFeatureCard: View {
                             Image(systemName: destination.symbol).resizable().scaledToFit()
                         }
                     }
-                    .foregroundStyle(destination.color)
-                    .frame(width: 21, height: 21)
-                    .frame(width: 42, height: 42)
-                    .background(destination.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
+                    .frame(width: 23, height: 23)
+                    .moduleIconPlate(tint: destination.color, size: 44, radius: 13)
                     .accessibilityHidden(true)
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(isHovered ? Color.accentColor : Theme.navigationSecondary)
                         .frame(width: 28, height: 28)
-                        .background(Theme.surfaceSunk, in: Circle())
+                        .moduleIconPlate(tint: destination.color, size: 28, radius: 14)
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 6) {
@@ -146,9 +142,9 @@ private struct WorkspaceFeatureCard: View {
                         Spacer(minLength: 4)
                         Text(result.totalSizeFormatted).fontWeight(.semibold).monospacedDigit()
                     } else {
-                        Text(destination.group == .cleanup ? "等待扫描" : "查看详情")
+                        Text(destination.group == .cleanup ? "等待扫描" : "查看详情").foregroundStyle(Theme.actionInk)
                         Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.actionInk)
                     }
                 }
                 .font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary)

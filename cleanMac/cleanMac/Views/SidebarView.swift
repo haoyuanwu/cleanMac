@@ -83,7 +83,7 @@ struct SidebarView: View {
             ZStack {
                 WorkspaceModuleIcon(group: group)
                     .frame(width: 27, height: 27)
-                    .foregroundStyle(selectedGroup == group ? Color.white : Color.primary)
+                    .foregroundStyle(selectedGroup == group ? Color.white : group.tint)
             }
             .frame(width: 48, height: 48)
             .contentShape(RoundedRectangle(cornerRadius: 15))

@@ -66,11 +66,12 @@ struct ApplicationResourceCard: View {
                 }.font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
             }
             HStack(spacing: 12) {
-                TextField("搜索应用", text: $query).textFieldStyle(.plain)
-                    .font(.system(size: 12)).padding(8).gradientGlass(cornerRadius: 9)
-                Picker("排序", selection: $order) {
-                    ForEach(Order.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }.font(.system(size: 12)).frame(width: 145)
+                ExpandableSearchField(placeholder: "搜索应用", text: $query)
+                Spacer(minLength: 8)
+                ChoiceDropdown(title: "应用排序", selection: $order,
+                               options: Order.allCases.map { ChoiceItem(value: $0, title: $0.rawValue,
+                                   symbol: $0 == .cpu ? "cpu" : $0 == .memory ? "memorychip" : "textformat") })
+
             }
             HStack {
                 Text("应用")

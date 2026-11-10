@@ -21,6 +21,17 @@ enum WorkspaceGroup: String, CaseIterable, Identifiable {
         case .preferences: return "slider.horizontal.3"
         }
     }
+    var tint: Color {
+        switch self {
+        case .overview: return .indigo
+        case .cleanup: return .blue
+        case .files: return .orange
+        case .applications: return .purple
+        case .storage: return .cyan
+        case .preferences: return .green
+        case .device: return .indigo
+        }
+    }
     var subtitle: String {
         switch self {
         case .overview: return "扫描、查看结果、确认清理，一步接着一步。"
@@ -129,7 +140,12 @@ enum WorkspaceDestination: Hashable, Identifiable {
         case .page(.deviceConnections): return .cyan
         case .page(.deviceBattery): return .green
         case .page(.deviceStorage), .page(.duplicates): return .orange
-        case .page(.whitelist): return .green
+        case .page(.whitelist), .page(.startup): return .green
+        case .page(.packages): return .orange
+        case .page(.aiToolchain), .page(.extensions): return .purple
+        case .page(.containers): return .teal
+        case .page(.xcode), .page(.projectArtifacts): return .blue
+        case .page(.insights): return .orange
         default: return .indigo
         }
     }

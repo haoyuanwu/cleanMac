@@ -182,7 +182,7 @@ struct SystemExtrasPanel: View {
     var body: some View {
         VStack(spacing: 24) {
             TelemetryPanel("搜索设备字段") {
-                TextField("搜索芯片、版本、序列号等", text: $query).textFieldStyle(.plain).padding(10).gradientGlass(cornerRadius: 10)
+                ExpandableSearchField(placeholder: "搜索芯片、版本、序列号等", text: $query)
                 if !query.isEmpty {
                     let matches = (snapshot.device + snapshot.software).filter { $0.label.localizedCaseInsensitiveContains(query) || $0.value.localizedCaseInsensitiveContains(query) }
                     if matches.isEmpty { Text("没有匹配的设备字段").font(.caption).foregroundStyle(.secondary) }

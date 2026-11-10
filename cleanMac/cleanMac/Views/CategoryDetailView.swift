@@ -10,14 +10,13 @@ struct CategoryDetailView: View {
     @State private var sortBy: SortOption = .size
     @State private var searchText = ""
     @State private var ageFilter: FileAgeBucket?
-    @State private var isSearchExpanded = false
     @State private var selectedFiles = Set<FileItem.ID>()
     @State private var showingEmptyTrashConfirmation = false
     @State private var showingDiagnostics = false
     @State private var showingSpaceDetails = false
+    @State private var inspectedApplication: FileItem?
     @State private var previewImage: FileItem?
     @State private var appearProgress: CGFloat = 0
-    @FocusState private var isSearchFocused: Bool
     
     enum SortOption: String, CaseIterable {
         case size = "按大小"
@@ -81,34 +80,8 @@ struct CategoryDetailView: View {
     }
 
     private var sortControls: some View {
-        HStack(spacing: 3) {
-            ForEach(SortOption.allCases, id: \.self) { option in
-                Button {
-                    withAnimation(Theme.ease) { sortBy = option }
-                } label: {
-                    Text(option.rawValue)
-                        .font(.system(size: 12, weight: sortBy == option ? .semibold : .medium))
-                        .foregroundStyle(sortBy == option ? Color.white : Color.secondary)
-                        .padding(.horizontal, 9)
-                        .frame(height: 30)
-                        .background {
-                            if sortBy == option {
-                                RoundedRectangle(cornerRadius: 7).fill(Theme.accentGradient)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(sortBy == option ? .isSelected : [])
-                .help(option.rawValue)
-            }
-        }
-        .padding(3)
-        .background(Theme.inlineSurface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06)))
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("文件排序")
+        ChoiceDropdown(title: "文件排序", selection: $sortBy,
+                       options: SortOption.allCases.map { ChoiceItem(value: $0, title: $0.rawValue, symbol: $0.icon) })
     }
 
     private func normalizedSearchText(_ text: String) -> String {
@@ -147,12 +120,19 @@ struct CategoryDetailView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if result?.isScanning != true {
+                if result?.isScanning != true || result?.items.isEmpty == false {
                     headerBar
                 }
 
                 if let result = result {
-                    if result.isScanning {
+                    if result.isScanning && !result.items.isEmpty {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text("正在后台更新，当前展示上次扫描结果")
+                            Spacer()
+                        }.font(.system(size: 12)).padding(.horizontal, 22).padding(.vertical, 10)
+                        fileListContent.disabled(true)
+                    } else if result.isScanning {
                         VStack(spacing: 12) {
                             scanningView
                             if result.diagnostics != nil {
@@ -179,6 +159,10 @@ struct CategoryDetailView: View {
             if let diagnostics = result?.diagnostics { ScanDiagnosticsView(category: category, diagnostics: diagnostics) }
         }
         .navigationTitle("")
+        .sheet(item: $inspectedApplication) { app in ApplicationStorageDetailView(application: app) }
+        .task(id: category) {
+            if category == .applications { await viewModel.scanCategory(category) }
+        }
         .sheet(item: $previewImage) { file in
             ImagePreviewView(files: visibleImages, initialPath: file.path)
         }
@@ -249,13 +233,8 @@ struct CategoryDetailView: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .foregroundColor(category.color)
-                    .frame(width: 18, height: 18)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(category.color.opacity(0.12))
-                    )
+                    .frame(width: 20, height: 20)
+                    .moduleIconPlate(tint: category.color, size: 36, radius: 10)
                     .accessibilityHidden(true)
 
                 Text(category.rawValue)
@@ -271,7 +250,7 @@ struct CategoryDetailView: View {
             if let result, !result.items.isEmpty || !result.overlappingItems.isEmpty {
                 Button { showingSpaceDetails.toggle() } label: {
                     Image(systemName: "chart.bar.doc.horizontal").frame(width: 28, height: 28)
-                }.buttonStyle(.plain).foregroundStyle(Theme.navigationSecondary)
+                }.buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: .blue))
                     .help("空间统计与扫描说明").accessibilityLabel("空间统计与扫描说明")
                     .popover(isPresented: $showingSpaceDetails, arrowEdge: .bottom) {
                         VStack(alignment: .leading, spacing: 10) {
@@ -294,8 +273,7 @@ struct CategoryDetailView: View {
             }
             if result?.diagnostics != nil {
                 Button { showingDiagnostics = true } label: { Image(systemName: "info.circle") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(result?.diagnostics?.summary == nil ? Color.secondary : Color.orange)
+                    .buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: result?.diagnostics?.summary == nil ? .blue : .orange))
                     .help(result?.diagnostics?.summary == nil ? "查看扫描诊断" : "扫描结果不完整，查看诊断")
                     .accessibilityLabel("查看扫描诊断").accessibilityValue(result?.diagnostics?.summary ?? "扫描完成")
             }
@@ -311,7 +289,7 @@ struct CategoryDetailView: View {
                         ) {
                             showingEmptyTrashConfirmation = true
                         }
-                        .disabled(result.error != nil)
+                        .disabled(result.error != nil || result.isScanning)
                         .help(result.error == nil ? "永久删除废纸篓中的所有项目" : "部分废纸篓无法读取，请先授予权限")
                     }
 
@@ -340,12 +318,14 @@ struct CategoryDetailView: View {
     
     @ViewBuilder
     private var rescanControl: some View {
-        if category == .applicationCache {
+        if result?.isScanning == true {
+            DetailTextButton(title: "取消更新", systemImage: "xmark") { viewModel.cancelCategoryScan(category) }
+        } else if category == .applicationCache || category == .applications {
             Menu {
                 Button("增量扫描") { Task { await viewModel.scanCategory(category) } }
                 Button("完整重扫") { Task { await viewModel.scanCategory(category, forceFull: true) } }
-            } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
-                .menuStyle(.borderlessButton).fixedSize().font(.system(size: 12))
+            } label: { ReadableMenuLabel(title: "重新扫描", symbol: "arrow.clockwise") }
+                .menuStyle(.button).buttonStyle(ReadableControlButtonStyle(tint: .blue)).fixedSize()
         } else {
             DetailTextButton(title: "重新扫描", systemImage: "arrow.clockwise") {
                 Task { await viewModel.scanCategory(category) }
@@ -460,6 +440,17 @@ struct CategoryDetailView: View {
                 timelineBar
             }
 
+            if let date = result?.updatedAt {
+                HStack(spacing: 8) {
+                    Text("更新于 " + date.formatted(date: .abbreviated, time: .shortened))
+                    if category == .applications, let summary = viewModel.applicationInventorySummary {
+                        Text("· 复用 \(summary.reused) 个 · 重扫 \(summary.rescanned) 个")
+                    }
+                    Spacer()
+                    if category == .applications { Text("双击应用查看占用详情") }
+                }.font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 22).padding(.vertical, 8)
+            }
             // 应用卸载增强
             if category == .applications {
                 leftoverSummaryBar
@@ -467,59 +458,9 @@ struct CategoryDetailView: View {
 
             // 工具栏
             HStack(spacing: 8) {
-                if isSearchExpanded {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                        TextField("模糊搜索文件…", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 14))
-                            .focused($isSearchFocused)
-                            .onAppear { isSearchFocused = true }
-                        Button {
-                            searchText = ""
-                            isSearchFocused = false
-                            withAnimation(Theme.spring) {
-                                isSearchExpanded = false
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("关闭搜索")
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(minWidth: 150, idealWidth: 220, maxWidth: 260)
-                    .frame(height: 36)
-                    .background(Theme.inlineSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                } else {
-                    Button {
-                        withAnimation(Theme.spring) {
-                            isSearchExpanded = true
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 15, weight: .medium))
-                            .frame(width: 36, height: 36)
-                    }
-                    .buttonStyle(.plain)
-                    .background(Theme.inlineSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                    .help("搜索文件")
-                    .accessibilityLabel("搜索文件")
-                }
+                ExpandableSearchField(placeholder: "搜索文件名称、软件或路径", text: $searchText)
+
+                Spacer(minLength: 8)
 
                 sortControls
 
@@ -542,13 +483,11 @@ struct CategoryDetailView: View {
                           systemImage: allVisibleFilesSelected ? "checkmark.square.fill" : "checkmark.square")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ReadableControlButtonStyle())
                 .controlSize(.regular)
                 .keyboardShortcut("a", modifiers: .command)
                 .disabled(sortedFiles.isEmpty)
                 .help("选择列表中的所有文件（⌘A）")
-
-                Spacer()
 
             }
             .padding(.horizontal, 22)
@@ -576,8 +515,10 @@ struct CategoryDetailView: View {
                     onReveal: { file in
                         viewModel.revealInFinder(file)
                     },
+                    onInspect: category == .applications ? { inspectedApplication = $0 } : nil,
                     onOpen: { file in
-                        if visibleImages.contains(where: { $0.path == file.path }) {
+                        if category == .applications { inspectedApplication = file }
+                        else if visibleImages.contains(where: { $0.path == file.path }) {
                             previewImage = file
                         } else {
                             viewModel.openFile(file)
@@ -616,7 +557,7 @@ struct CategoryDetailView: View {
             HStack(spacing: 8) {
                 Label("修改时间", systemImage: "clock").foregroundStyle(Theme.navigationSecondary)
                 Button("全部") { ageFilter = nil }
-                    .buttonStyle(.bordered).tint(ageFilter == nil ? .accentColor : .secondary)
+                    .buttonStyle(ReadableControlButtonStyle(selected: ageFilter == nil))
                 ForEach(groups, id: \.bucket) { group in
                     Button {
                         ageFilter = ageFilter == group.bucket ? nil : group.bucket
@@ -627,7 +568,7 @@ struct CategoryDetailView: View {
                             Text("\(group.items.count) 项 · \(FileSizeFormatter.string(fromByteCount: group.totalSize))")
                                 .foregroundStyle(Theme.navigationSecondary).monospacedDigit()
                         }
-                    }.buttonStyle(.bordered).tint(ageFilter == group.bucket ? .accentColor : .secondary)
+                    }.buttonStyle(ReadableControlButtonStyle(selected: ageFilter == group.bucket))
                         .accessibilityAddTraits(ageFilter == group.bucket ? .isSelected : [])
                 }
             }.font(.system(size: 12)).padding(.vertical, 2)
@@ -659,7 +600,7 @@ struct CategoryDetailView: View {
                     Label("查看卸载与残留", systemImage: "shippingbox")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ReadableControlButtonStyle())
                 .controlSize(.small)
             }
         }
@@ -721,11 +662,11 @@ struct CategoryDetailView: View {
                 .frame(maxWidth: 440)
             HStack(spacing: 10) {
                 Button("前往权限设置", action: onOpenSettings)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ReadableControlButtonStyle(prominent: true))
                 Button("重新扫描") {
                     Task { await viewModel.scanCategory(category) }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ReadableControlButtonStyle())
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -829,10 +770,9 @@ struct CategoryDetailView: View {
                 Button("清除搜索") {
                     withAnimation(Theme.spring) {
                         searchText = ""
-                        isSearchExpanded = false
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ReadableControlButtonStyle())
                 .controlSize(.small)
             }
         }
@@ -848,8 +788,6 @@ struct DetailTextButton: View {
     var isDestructive: Bool = false
     let action: () -> Void
 
-    @State private var isHovered = false
-
     init(title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
         self.title = title
         self.systemImage = systemImage
@@ -859,48 +797,18 @@ struct DetailTextButton: View {
     }
 
     var body: some View {
-        Button(role: role, action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .medium))
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .foregroundStyle(
-                isDestructive
-                    ? AnyShapeStyle(Color.red)
-                    : AnyShapeStyle(Color.primary)
-            )
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(backgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(borderColor, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.02 : 1)
-        .onHover { hovering in
-            withAnimation(Theme.springSnappy) { isHovered = hovering }
-        }
+        Button(role: isDestructive ? .destructive : role, action: action) {
+            Label(title, systemImage: systemImage)
+        }.buttonStyle(ReadableControlButtonStyle(tint: actionTint))
     }
 
-    private var backgroundColor: Color {
-        if isDestructive {
-            return isHovered ? Color.red.opacity(0.12) : Color.red.opacity(0.06)
+    private var actionTint: Color {
+        switch systemImage {
+        case "folder", "arrow.up.right", "arrow.clockwise", "sparkle.magnifyingglass": return .blue
+        case "trash", "trash.slash", "trash.fill": return .orange
+        case "xmark": return .orange
+        default: return .indigo
         }
-        return isHovered ? Theme.inlineSurface : Color.primary.opacity(0.04)
-    }
-
-    private var borderColor: Color {
-        if isDestructive {
-            return Color.red.opacity(0.18)
-        }
-        return Color.primary.opacity(0.08)
     }
 }
 

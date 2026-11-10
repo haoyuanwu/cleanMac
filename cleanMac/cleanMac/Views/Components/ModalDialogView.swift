@@ -54,38 +54,16 @@ struct ModalDialogView: View {
                         Text(cancelTitle)
                             .font(.system(size: 13, weight: .medium))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ReadableControlButtonStyle())
                     .controlSize(.large)
                 }
 
-                Button(action: onConfirm) {
-                    Text(confirmTitle)
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .foregroundColor(.white)
-                        .background(
-                            Capsule()
-                                .fill(
-                                    isDestructive
-                                        ? AnyShapeStyle(LinearGradient(
-                                            colors: [Color.red.opacity(0.95), Color.red.opacity(0.75)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ))
-                                        : AnyShapeStyle(Theme.accentGradient)
-                                )
-                        )
-                        .shadow(
-                            color: (isDestructive ? Color.red : Color.blue).opacity(0.28),
-                            radius: 12,
-                            y: 5
-                        )
+                Button(role: isDestructive ? .destructive : nil, action: onConfirm) {
+                    Text(confirmTitle).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
-                .controlSize(.large)
+                .buttonStyle(ReadableControlButtonStyle(prominent: true))
+
             }
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 10)

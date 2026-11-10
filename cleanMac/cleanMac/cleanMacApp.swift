@@ -99,6 +99,9 @@ struct cleanMacApp: App {
 
         // 菜单栏命令
         .commands {
+            #if DEBUG
+            StatusPopupPreviewCommands()
+            #endif
             CommandGroup(after: .newItem) {
                 Button("清理扫描") {
                     NotificationCenter.default.post(name: .init("scanAll"), object: nil)
@@ -106,5 +109,22 @@ struct cleanMacApp: App {
                 .keyboardShortcut("s", modifiers: .command)
             }
         }
+        #if DEBUG
+        Window("状态栏布局预览", id: "status-popup-preview") {
+            MenuBarStatusView()
+        }.windowResizability(.contentSize)
+        #endif
     }
 }
+
+#if DEBUG
+private struct StatusPopupPreviewCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("预览状态栏布局") { openWindow(id: "status-popup-preview") }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+        }
+    }
+}
+#endif

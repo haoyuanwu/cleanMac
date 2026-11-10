@@ -96,7 +96,7 @@ PY
     BUILD_ARCH=arm64 "$APP_ROOT/Scripts/make_dmg.sh"
   fi
   # 只暂存应用源码、设计资源、发布脚本、版本和说明；不包含 Xcode 用户状态及 build 产物。
-  git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
+  git add -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$APP_ROOT/MemoryHelper" "$APP_ROOT/cleanMac.xcodeproj/xcshareddata" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github"
   git add -f -- "$NOTES"
   git diff --cached --check
   echo '==> 创建中文提交和版本标签'
@@ -106,7 +106,7 @@ if [[ "$MODE" != --wait-only ]]; then
   if [[ "$MODE" = --resume ]]; then
     [[ "$(git branch --show-current)" = main ]] || { echo '错误：请从 main 分支继续发布' >&2; exit 1; }
     git diff --cached --quiet || { echo '错误：请先处理暂存区改动' >&2; exit 1; }
-    git diff --quiet -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github" "$NOTES" || {
+    git diff --quiet -- "$APP_ROOT/cleanMac" "$APP_ROOT/cleanMacTests" "$APP_ROOT/Design" "$APP_ROOT/MemoryHelper" "$APP_ROOT/cleanMac.xcodeproj/xcshareddata" "$PROJECT" "$APP_ROOT/Scripts" "$REPO_ROOT/README.md" "$REPO_ROOT/.github" "$NOTES" || {
       echo '错误：源码或发布文件发生变化，请先提交后再继续推送' >&2; exit 1;
     }
     git cat-file -e "HEAD:docs/releases/$TAG.md"

@@ -85,8 +85,7 @@ struct SelectionSummaryCapsule: View {
                     .frame(width: 24, height: 32)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: .orange))
             .help("取消选择")
             .accessibilityLabel("取消选择")
             .disabled(isBusy)

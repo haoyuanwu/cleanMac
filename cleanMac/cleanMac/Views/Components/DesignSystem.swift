@@ -40,7 +40,29 @@ enum Theme {
     ))
 
     /// 页面内轻量控件透出共享渐变；弹窗继续使用独立实底。
-    static let inlineSurface = surfaceRaised.opacity(0.32)
+    static let inlineSurface = surfaceRaised
+    static let controlHeight: CGFloat = 36
+    static let controlBorder = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.50, green: 0.53, blue: 0.60, alpha: 1),
+        dark: NSColor(srgbRed: 0.54, green: 0.58, blue: 0.67, alpha: 1)
+    ))
+    static let iconInk = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.16, green: 0.18, blue: 0.25, alpha: 1),
+        dark: NSColor(srgbRed: 0.93, green: 0.94, blue: 1, alpha: 1)
+    ))
+    static let actionInk = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.25, green: 0.18, blue: 0.60, alpha: 1),
+        dark: NSColor(srgbRed: 0.78, green: 0.75, blue: 1, alpha: 1)
+    ))
+    static let controlWash = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.92, green: 0.93, blue: 1, alpha: 1),
+        dark: NSColor(srgbRed: 0.22, green: 0.22, blue: 0.34, alpha: 1)
+    ))
+    static let actionAccent = Color(red: 0.27, green: 0.19, blue: 0.68)
+    static let destructiveInk = Color(nsColor: adaptive(
+        light: NSColor(srgbRed: 0.65, green: 0.10, blue: 0.17, alpha: 1),
+        dark: NSColor(srgbRed: 1, green: 0.71, blue: 0.75, alpha: 1)
+    ))
 
     /// 主区顶部冷色紫蓝洗染，产品仪表盘纵深
     static let canvasWash = LinearGradient(
@@ -1006,4 +1028,107 @@ struct CompactListMetric: View {
         .font(.system(size: 12)).fixedSize()
         .accessibilityElement(children: .combine)
     }
+}
+
+
+/// 普通操作统一高度与实色底板，不依赖画布底色获得可读性。
+struct ReadableControlButtonStyle: ButtonStyle {
+    var prominent = false
+    var selected = false
+    var iconOnly = false
+    var tint: Color = .indigo
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let emphasized = prominent || selected
+        let destructive = configuration.role == .destructive
+        let base = NSColor(destructive ? Color.red : tint).usingColorSpace(.sRGB) ?? .systemIndigo
+        let accent = Color(nsColor: base.blended(withFraction: 0.42, of: .black) ?? base)
+        let ink = Color(nsColor: base.blended(withFraction: scheme == .dark ? 0.35 : 0.42,
+                                             of: scheme == .dark ? .white : .black) ?? base)
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .lineLimit(1)
+            .foregroundStyle(emphasized ? Color.white : ink)
+            .padding(.horizontal, iconOnly ? 0 : 12)
+            .frame(width: iconOnly ? Theme.controlHeight : nil, height: Theme.controlHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 10).fill(emphasized ? accent : Theme.surfaceRaised)
+                if !emphasized {
+                    RoundedRectangle(cornerRadius: 10).fill((destructive ? Color.red : tint).opacity(configuration.isPressed || hovered ? 0.22 : 0.12))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(emphasized ? accent : ink.opacity(0.55), lineWidth: 1))
+            .opacity(enabled ? 1 : 0.45)
+            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? 0.98 : 1)
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private struct ModuleIconPlate: ViewModifier {
+    let tint: Color
+    let size: CGFloat
+    let radius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    private var ink: Color {
+        let base = NSColor(tint).usingColorSpace(.sRGB) ?? .systemIndigo
+        // 保留模块色相：浅色压深、深色提亮，避免明黄和青绿轮廓发虚。
+        return Color(nsColor: base.blended(withFraction: scheme == .dark ? 0.35 : 0.42,
+                                          of: scheme == .dark ? .white : .black) ?? base)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(ink)
+            .frame(width: size, height: size)
+            .background {
+                RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.surfaceRaised)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(LinearGradient(colors: [tint.opacity(scheme == .dark ? 0.28 : 0.24),
+                                                  tint.opacity(scheme == .dark ? 0.16 : 0.12)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(ink.opacity(scheme == .dark ? 0.55 : 0.32), lineWidth: 1))
+            .shadow(color: tint.opacity(scheme == .dark ? 0.10 : 0.18), radius: 5, y: 2)
+    }
+}
+
+extension View {
+    /// 原有模块色相 + 同色渐变底板 + 深色轮廓，延续彩色画布的层次。
+    func moduleIconPlate(tint: Color, size: CGFloat, radius: CGFloat = 12) -> some View {
+        modifier(ModuleIconPlate(tint: tint, size: size, radius: radius))
+    }
+}
+
+struct ReadableMenuLabel: View {
+    let title: String
+    var symbol: String? = nil
+    var body: some View {
+        HStack(spacing: 6) {
+            if let symbol { Image(systemName: symbol) }
+            Text(title).lineLimit(1)
+        }
+    }
+}
+
+/// 状态栏的小卡片统一使用稳定的玻璃表面，不随悬停改变阴影。
+private struct PopupCardSurface: ViewModifier {
+    let padding: CGFloat
+    func body(content: Content) -> some View {
+        content.padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GradientGlassSurface(cornerRadius: 14))
+            .shadow(color: .black.opacity(0.035), radius: 6, y: 2)
+    }
+}
+extension View {
+    func popupCard(padding: CGFloat = 12) -> some View { modifier(PopupCardSurface(padding: padding)) }
 }

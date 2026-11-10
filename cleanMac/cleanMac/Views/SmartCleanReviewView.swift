@@ -145,18 +145,12 @@ struct SmartCleanReviewView: View {
 
     private var filters: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.navigationSecondary).accessibilityHidden(true)
-                TextField("搜索软件、名称或路径", text: $query).textFieldStyle(.plain)
-                    .accessibilityLabel("搜索清理清单")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(Theme.navigationSecondary).accessibilityLabel("清空搜索")
-                }
-            }.padding(10).gradientGlass(cornerRadius: 12)
-            Picker("排序", selection: $sort) {
-                ForEach(SmartCleanReviewSort.allCases) { Text($0.rawValue).tag($0) }
-            }.labelsHidden().frame(width: 126).accessibilityLabel("项目排序")
+            ExpandableSearchField(placeholder: "搜索软件、名称或路径", text: $query)
+            Spacer(minLength: 8)
+            ChoiceDropdown(title: "项目排序", selection: $sort,
+                           options: SmartCleanReviewSort.allCases.map { ChoiceItem(value: $0, title: $0.rawValue,
+                               symbol: $0 == .size ? "arrow.down.to.line.compact" : $0 == .modified ? "calendar" : "textformat") })
+
         }.font(.system(size: 12))
     }
 
@@ -277,7 +271,7 @@ struct SmartCleanReviewView: View {
             Text(plan.isEmpty ? "加入白名单的项目已从清单中移除。" : "试试其他软件名称或路径，已有勾选会保留。")
                 .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
             if !plan.isEmpty {
-                Button("清除搜索") { query = "" }.buttonStyle(.bordered)
+                Button("清除搜索") { query = "" }.buttonStyle(ReadableControlButtonStyle())
             }
         }.frame(maxWidth: .infinity, minHeight: 180).gradientGlass(cornerRadius: 16)
     }

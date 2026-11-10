@@ -14,10 +14,16 @@ final class DownloadInventoryTests: XCTestCase {
         let first = await service.scanApplications(searchPaths: [root.path])
         let second = await service.scanApplications(searchPaths: [root.path])
         XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(service.applicationSummary?.reused, CacheEventMonitor.shared.token(for: app.path).available ? 1 : 0)
+        XCTAssertEqual(service.applicationSummary?.rescanned, CacheEventMonitor.shared.token(for: app.path).available ? 0 : 1)
         XCTAssertEqual(second.first?.size, 1)
         if CacheEventMonitor.shared.token(for: app.path).available {
             XCTAssertEqual(first.first?.id, second.first?.id)
         }
+        let full = await service.scanApplications(searchPaths: [root.path], forceFull: true)
+        XCTAssertNotEqual(second.first?.id, full.first?.id)
+        XCTAssertEqual(service.applicationSummary?.reused, 0)
+        XCTAssertEqual(service.applicationSummary?.rescanned, 1)
         try Data([1, 2, 3, 4]).write(to: payload)
         CacheEventMonitor.shared.record(paths: [payload.path], eventLoss: false)
         let updated = await service.scanApplications(searchPaths: [root.path])

@@ -50,7 +50,7 @@ struct DonationView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(ReadableControlButtonStyle())
             .controlSize(.large)
         }
         .padding(24)

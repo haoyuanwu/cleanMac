@@ -150,14 +150,13 @@ struct DuplicateFilesView: View {
             Spacer()
 
             if hasScanned && !isLoading {
-                DetailTextButton(title: "全部展开", systemImage: "chevron.down") {
+                DetailTextButton(
+                    title: expandedGroupIDs.isSuperset(of: Set(groups.map(\.id))) ? "全部收起" : "全部展开",
+                    systemImage: expandedGroupIDs.isSuperset(of: Set(groups.map(\.id))) ? "chevron.up" : "chevron.down"
+                ) {
                     withAnimation(Theme.spring) {
-                        expandedGroupIDs = Set(groups.map(\.id))
-                    }
-                }
-                DetailTextButton(title: "全部收起", systemImage: "chevron.up") {
-                    withAnimation(Theme.spring) {
-                        expandedGroupIDs.removeAll()
+                        if expandedGroupIDs.isSuperset(of: Set(groups.map(\.id))) { expandedGroupIDs.removeAll() }
+                        else { expandedGroupIDs = Set(groups.map(\.id)) }
                     }
                 }
                 DetailTextButton(title: "重新扫描", systemImage: "arrow.clockwise") {

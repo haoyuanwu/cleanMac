@@ -119,7 +119,7 @@ struct UninstallLeftoverDialog: View {
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 18).frame(minHeight: 40)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ReadableControlButtonStyle(prominent: true))
                 .disabled(isLoading || isQuitting || selectedApps.isEmpty || !runningApplications.isEmpty)
             }
         }

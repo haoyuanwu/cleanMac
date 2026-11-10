@@ -98,8 +98,7 @@ struct DevelopmentStorageView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: kind.symbol).font(.system(size: showingResults ? 17 : 19, weight: .semibold))
-                .foregroundStyle(.white).frame(width: showingResults ? 32 : 38, height: showingResults ? 32 : 38)
-                .background(Theme.categoryGradient(tint), in: RoundedRectangle(cornerRadius: 11))
+                .moduleIconPlate(tint: tint, size: 38, radius: 11)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(kind.rawValue).font(.system(size: showingResults ? 18 : 20, weight: .bold, design: .rounded))
@@ -158,6 +157,7 @@ struct DevelopmentStorageView: View {
                 subtitle: "仅统计文件元数据，可切换页面，扫描会在后台继续。",
                 diagnostics: session.progress[kind])
             Button(session.cancelling.contains(kind) ? "正在取消…" : "取消扫描", action: { session.cancelScan(kind) })
+                .buttonStyle(ReadableControlButtonStyle(tint: .orange))
                 .disabled(session.cancelling.contains(kind)).controlSize(.regular)
         }
     }
@@ -176,7 +176,7 @@ struct DevelopmentStorageView: View {
                           systemImage: targets.isEmpty ? "checkmark.square" : "arrow.triangle.2.circlepath")
                 }.keyboardShortcut("a", modifiers: .command)
                     .help(targets.isEmpty ? "全选当前筛选结果中的可清理目录，AI 软件组会自动展开（⌘A）" : "反选当前筛选结果中的可清理目录（⌘A）")
-                    .buttonStyle(.bordered).controlSize(.small)
+                    .buttonStyle(ReadableControlButtonStyle()).controlSize(.small)
                     .font(.system(size: 12, weight: .medium)).disabled(bulkEligible.isEmpty || session.busy(for: kind))
             } else { Label("仅查看", systemImage: "eye").font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary) }
         }
@@ -271,7 +271,7 @@ struct DevelopmentStorageView: View {
                             if caches.allSatisfy({ selected.contains($0.id) }) { selected.subtract(caches.map(\.id)) }
                             else { selected.formUnion(caches.map(\.id)) }
                         }
-                    }.font(.system(size: 12)).disabled(session.busy(for: kind))
+                    }.buttonStyle(ReadableControlButtonStyle()).font(.system(size: 12)).disabled(session.busy(for: kind))
                 }
             }.padding(14).gradientGlass(cornerRadius: 12)
             .contextMenu {
@@ -318,23 +318,15 @@ struct DevelopmentStorageView: View {
     }
     private var filters: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").foregroundStyle(DevelopmentStoragePalette.secondary)
-                TextField("搜索工具、目录或路径", text: $query).textFieldStyle(.plain)
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).accessibilityLabel("清除搜索")
-                }
-            }.padding(.horizontal, 9).padding(.vertical, 6).gradientGlass(cornerRadius: 9)
-            Picker("所属工具", selection: $owner) {
-                Text("全部工具").tag("全部工具")
-                ForEach(Array(Set(allEntries.map(\.owner))).sorted(), id: \.self) { Text($0).tag($0) }
-            }.labelsHidden().frame(width: 124)
-            Menu {
-                Button("按占用大小") { sortBySize = true }
-                Button("按工具名称") { sortBySize = false }
-            } label: { Label(sortBySize ? "按大小" : "按名称", systemImage: "arrow.up.arrow.down") }
-                .fixedSize()
+            ExpandableSearchField(placeholder: "搜索工具、目录或路径", text: $query)
+            Spacer(minLength: 8)
+            ChoiceDropdown(title: "所属工具", selection: $owner,
+                           options: (["全部工具"] + Array(Set(allEntries.map(\.owner))).filter { $0 != "全部工具" }.sorted())
+                            .map { ChoiceItem(value: $0, title: $0) }, symbol: "line.3.horizontal.decrease")
+            ChoiceDropdown(title: "目录排序", selection: $sortBySize, options: [
+                ChoiceItem(value: true, title: "按大小", symbol: "arrow.down.to.line.compact"),
+                ChoiceItem(value: false, title: "按名称", symbol: "textformat")])
+
         }.font(.system(size: 12)).disabled(session.cleaning == kind)
     }
     private var emptyResults: some View {
@@ -343,7 +335,7 @@ struct DevelopmentStorageView: View {
             Text(allEntries.isEmpty ? "当前范围内未发现目录" : "没有匹配的目录").font(.system(size: 15, weight: .semibold))
             Text(allEntries.isEmpty ? "扫描常用默认位置；自定义存储位置可能未覆盖。" : "试试其他关键词，或清除筛选条件。")
                 .font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
-            if !allEntries.isEmpty { Button("清除筛选") { query = ""; owner = "全部工具" } }
+            if !allEntries.isEmpty { Button("清除筛选") { query = ""; owner = "全部工具" }.buttonStyle(ReadableControlButtonStyle()) }
         }.frame(maxWidth: .infinity).padding(.vertical, 40)
     }
     private func dockerCard(_ text: String) -> some View {
@@ -461,7 +453,7 @@ private struct DevelopmentStorageRow: View {
         HStack(spacing: 12) {
             Image(systemName: selectable ? (isSelected ? "checkmark.circle.fill" : "circle") : "eye")
                 .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(isSelected ? Color.primary : DevelopmentStoragePalette.secondary)
+                .foregroundStyle(isSelected ? Theme.actionInk : Theme.actionInk.opacity(0.7))
                 .frame(width: 28, height: 40)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
@@ -492,7 +484,7 @@ private struct DevelopmentStorageRow: View {
                     rowContent.accessibilityElement(children: .combine)
                 }
                 Button(action: expand) { Image(systemName: isExpanded ? "chevron.up" : "chevron.down").frame(width: 24, height: 32) }
-                    .buttonStyle(.plain).foregroundStyle(DevelopmentStoragePalette.secondary)
+                    .buttonStyle(ReadableControlButtonStyle(iconOnly: true))
                     .accessibilityLabel((isExpanded ? "收起" : "展开") + title + "的详情")
             }.padding(12)
             if isExpanded {
@@ -504,6 +496,7 @@ private struct DevelopmentStorageRow: View {
                         Label(entry.owner, systemImage: "folder")
                         Spacer()
                         Button("在 Finder 中显示") { NSWorkspace.shared.selectFile(entry.file.path, inFileViewerRootedAtPath: "") }
+                            .buttonStyle(ReadableControlButtonStyle(tint: .blue))
                     }
                 }.font(.system(size: 12)).foregroundStyle(DevelopmentStoragePalette.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 14).transition(.opacity)
@@ -511,7 +504,7 @@ private struct DevelopmentStorageRow: View {
         }
         .background(Theme.inlineSurface.opacity(hovered ? 1 : 0.6), in: RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Color.primary.opacity(0.6) : Theme.cardStroke, lineWidth: isSelected ? 1.5 : 1)
+            RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Theme.actionInk.opacity(0.65) : Theme.cardStroke, lineWidth: isSelected ? 1.5 : 1)
         }
         .onHover { hovered = $0 }
     }

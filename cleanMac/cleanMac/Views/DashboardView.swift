@@ -139,8 +139,8 @@ struct DashboardView: View {
             if !busy {
                 Button(action: onDeepSearch) {
                     HStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundStyle(.indigo)
-                            .frame(width: 40, height: 40).background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                        Image(systemName: "magnifyingglass").font(.system(size: 20, weight: .semibold))
+                            .moduleIconPlate(tint: .indigo, size: 40, radius: 12)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("深度扫描清理").font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary)
                             Text(hasCompletedDeepSearch ? "已完成，可到对应模块查看" : "大文件、重复文件与开发数据")

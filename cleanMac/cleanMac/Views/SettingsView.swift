@@ -17,6 +17,8 @@ struct SettingsView: View {
     @ObservedObject private var resourceMonitor = HighResourceMonitor.shared
     @ObservedObject private var growthMonitor = StorageGrowthMonitor.shared
     @ObservedObject private var trashMonitor = TrashMonitor.shared
+    @ObservedObject private var memoryHelper = MemoryHelperController.shared
+    @ObservedObject private var memoryMaintenance = MemoryMaintenanceService.shared
     @ObservedObject private var scheduledScan = ScheduledScanService.shared
 
     private var appVersion: String {
@@ -147,7 +149,7 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("系统权限", subtitle: "仅在扫描提示无法读取受保护内容时检查。")
+                    sectionHeader("系统权限", subtitle: "管理受保护数据访问与后台辅助服务授权。")
                     permissionsCard
                 }
 
@@ -168,7 +170,8 @@ struct SettingsView: View {
         }
         .navigationTitle("")
 
-        .task { cacheScanIgnoreCount = CacheScanIgnoreStore.shared.allRecords.count }
+        .task { cacheScanIgnoreCount = CacheScanIgnoreStore.shared.allRecords.count; memoryHelper.refreshStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in memoryHelper.refreshStatus() }
         .onReceive(NotificationCenter.default.publisher(for: CacheScanIgnoreStore.didChange).receive(on: RunLoop.main)) { _ in
             cacheScanIgnoreCount = CacheScanIgnoreStore.shared.allRecords.count
         }
@@ -391,6 +394,27 @@ struct SettingsView: View {
                     buttonTitle: "打开完全磁盘访问设置"
                 ) { openFullDiskAccessSettings() }
 
+                Divider().padding(.vertical, 4)
+                PermissionRow(icon: "server.rack", tint: .purple,
+                              title: "后台辅助服务", detail: memoryHelper.statusText,
+                              instruction: "用于内存缓存整理；首次需在系统设置批准，之后无需逐次管理员弹窗。",
+                              buttonTitle: "申请后台服务授权", buttonLabel: "申请授权") {
+                    memoryMaintenance.requestHelperAuthorization()
+                }.disabled(memoryMaintenance.running)
+                HStack(spacing: 10) {
+                    Button("系统设置", action: memoryHelper.openSettings)
+                        .buttonStyle(ReadableControlButtonStyle(tint: .blue))
+                    Button("移除服务", role: .destructive) { memoryMaintenance.removeHelper() }
+                        .buttonStyle(ReadableControlButtonStyle())
+                        .disabled(memoryMaintenance.running)
+                    Spacer(minLength: 0)
+                }.padding(.leading, 48).padding(.bottom, 8)
+                if let message = memoryMaintenance.message {
+                    Text(message).font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary)
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 48).padding(.bottom, 8)
+                }
+
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "lock.shield.fill")
                         .foregroundColor(.blue)
@@ -418,7 +442,7 @@ struct SettingsView: View {
                 } label: {
                     Label("打开日志文件", systemImage: "arrow.up.right")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ReadableControlButtonStyle())
             }
         }
     }
@@ -440,7 +464,7 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: 8)
                 Button("查看打赏方式") { showingDonation = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ReadableControlButtonStyle(prominent: true))
             }
         }
     }
@@ -458,9 +482,7 @@ struct SettingsView: View {
         HStack(spacing: 11) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(tint)
-                .frame(width: 38, height: 38)
-                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+                .moduleIconPlate(tint: tint, size: 38, radius: 11)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
@@ -549,6 +571,7 @@ private struct PermissionRow: View {
     let detail: String
     let instruction: String
     let buttonTitle: String
+    var buttonLabel: String = "打开"
     let action: () -> Void
 
     var body: some View {
@@ -575,10 +598,10 @@ private struct PermissionRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: action) {
-                Label("打开", systemImage: "arrow.up.right")
+                Label(buttonLabel, systemImage: "arrow.up.right")
                     .font(.system(size: 11, weight: .medium))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(ReadableControlButtonStyle())
             .controlSize(.small)
             .help(buttonTitle)
         }

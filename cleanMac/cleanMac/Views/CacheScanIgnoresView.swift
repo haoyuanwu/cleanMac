@@ -28,10 +28,9 @@ struct CacheScanIgnoresView: View {
                     .accessibilityLabel("自动忽略说明")
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            HStack {
-                TextField("搜索软件名称或路径", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("搜索自动忽略的路径")
+            HStack(spacing: 10) {
+                ExpandableSearchField(placeholder: "搜索软件名称或路径", text: $searchText)
+                Spacer(minLength: 8)
                 Text("\(records.count) 条记录").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize()
                 Button("恢复全部") { CacheScanIgnoreStore.shared.removeAll() }
                     .disabled(records.isEmpty)

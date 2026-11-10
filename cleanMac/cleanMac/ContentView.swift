@@ -210,6 +210,7 @@ struct ContentView: View {
         .animation(Theme.ease, value: developmentSession.pendingReview?.id)
         .animation(Theme.ease, value: developmentSession.cleaning)
         .task {
+            handlePendingDeviceDetail()
             await viewModel.loadStartupSnapshot()
             handlePendingOverviewScan()
             handlePendingDeepScan()
@@ -227,6 +228,9 @@ struct ContentView: View {
         }
         .onChange(of: appActions.deviceInfoRequest) { _ in
             handlePendingDeviceInfo()
+        }
+        .onChange(of: appActions.deviceDetailRequest) { _ in
+            handlePendingDeviceDetail()
         }
         .onChange(of: appActions.trashReviewRequest) { _ in
             handlePendingTrashReview()
@@ -379,6 +383,19 @@ struct ContentView: View {
         guard appActions.consumeDeepScanRequest() else { return }
         openDestination(.page(.dashboard))
         startDeepSearch()
+    }
+
+    private func handlePendingDeviceDetail() {
+        guard let page = appActions.consumeDeviceDetailRequest() else { return }
+        let tab: SidebarView.SidebarTab
+        switch page {
+        case .cpu: tab = .deviceCPU
+        case .memory: tab = .deviceMemory
+        case .connections: tab = .deviceConnections
+        case .storage: tab = .deviceStorage
+        case .battery: tab = .deviceBattery
+        }
+        openDestination(.page(tab))
     }
 
     private func handlePendingDeviceInfo() {

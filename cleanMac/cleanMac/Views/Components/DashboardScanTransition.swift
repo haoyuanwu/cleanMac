@@ -93,7 +93,7 @@ struct DashboardScanProgress: View {
                 Text("\(Int(fraction * 100))%")
                     .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
                 Spacer()
-                Button("取消扫描", action: onCancel).buttonStyle(.bordered)
+                Button("取消扫描", action: onCancel).buttonStyle(ReadableControlButtonStyle())
             }.frame(width: 300)
         }
     }

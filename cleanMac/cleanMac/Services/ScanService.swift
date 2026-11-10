@@ -6,12 +6,24 @@ struct TrashScanOutcome: Sendable {
     let error: String?
 }
 
+nonisolated struct ApplicationInventorySummary: Sendable {
+    let reused: Int
+    let rescanned: Int
+    let date: Date
+}
+
 /// 文件扫描服务
 final class ScanService: @unchecked Sendable {
     nonisolated private let fileManager = ScanFileAccess()
     nonisolated private let homeDir: String
     nonisolated private let applicationScanLock = NSLock()
     nonisolated(unsafe) private var applicationInventory: [String: (token: CacheEventToken, item: FileItem)] = [:]
+
+    nonisolated(unsafe) private var inventorySummary: ApplicationInventorySummary?
+    nonisolated var applicationSummary: ApplicationInventorySummary? {
+        applicationScanLock.lock(); defer { applicationScanLock.unlock() }
+        return inventorySummary
+    }
 
     nonisolated init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         homeDir = homeDirectory.path
@@ -235,29 +247,35 @@ final class ScanService: @unchecked Sendable {
     }
     
     // MARK: - 应用程序扫描
-    func scanApplications(searchPaths: [String]? = nil) async -> [FileItem] {
+    func scanApplications(searchPaths: [String]? = nil, forceFull: Bool = false) async -> [FileItem] {
         await ScanTask.run { [weak self] in
             guard let self else { return [] }
-            return self.scanApplicationInventory(searchPaths: searchPaths)
+            return self.scanApplicationInventory(searchPaths: searchPaths, forceFull: forceFull)
         }
     }
 
     /// 串行更新快照；仅在本进程持续监听期间复用，重启或事件丢失后重新计算。
-    nonisolated private func scanApplicationInventory(searchPaths: [String]?) -> [FileItem] {
+    nonisolated private func scanApplicationInventory(searchPaths: [String]?, forceFull: Bool) -> [FileItem] {
         applicationScanLock.lock()
         defer { applicationScanLock.unlock() }
         let monitor = CacheEventMonitor.shared
+        var reused = 0, rescanned = 0
+        var incompletePaths = Set<String>()
         var next: [String: (token: CacheEventToken, item: FileItem)] = [:]
         for appPath in searchPaths ?? ["/Applications", "\(homeDir)/Applications"] {
             // 无法列出的目录不复用旧条目，避免展示已卸载的应用。
             guard let contents = try? fileManager.contentsOfDirectory(atPath: appPath) else { continue }
             for name in contents where name.hasSuffix(".app") {
+                if Task.isCancelled { return applicationInventory.values.map(\.item) }
                 let path = (appPath as NSString).appendingPathComponent(name)
                 let before = monitor.token(for: path)
-                if before.available, let cached = applicationInventory[path], cached.token == before {
+                if !forceFull, before.available, let cached = applicationInventory[path], cached.token == before {
+                    reused += 1
                     next[path] = cached
                     continue
                 }
+                rescanned += 1
+                let errorRevision = ScanContext.diagnostics?.errorRevision
                 let size = FileHelper.directorySize(path)
                 let attributes = try? fileManager.attributesOfItem(atPath: path)
                 guard attributes != nil else { continue }
@@ -271,9 +289,12 @@ final class ScanService: @unchecked Sendable {
                 )
                 // 保存扫描前版本，扫描期间有变化时下次必定重算。
                 next[path] = (before, item)
+                if errorRevision != ScanContext.diagnostics?.errorRevision { incompletePaths.insert(path) }
             }
         }
-        applicationInventory = next
+        guard !Task.isCancelled else { return applicationInventory.values.map(\.item) }
+        inventorySummary = ApplicationInventorySummary(reused: reused, rescanned: rescanned, date: Date())
+        applicationInventory = next.filter { !incompletePaths.contains($0.key) }
         return next.values.map(\.item).sorted { $0.size > $1.size }
     }
 

@@ -36,12 +36,14 @@ private struct MenuBarPopupWindowReader: NSViewRepresentable {
 
 /// 菜单栏中的设备与空间速览。
 struct MenuBarStatusView: View {
+    static let popupSize = NSSize(width: 350, height: 570)
     var onOpenMainWindow: (() -> Void)? = nil
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @State private var popupWindowHolder = MenuBarPopupWindowHolder()
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var mainViewModel = MainViewModel.shared
+    @ObservedObject private var networkMonitor = NetworkSpeedMonitor.shared
     @ObservedObject private var deviceMonitor = DeviceStatusMonitor.shared
     private var status: DeviceQuickStatus? { deviceMonitor.snapshot?.quickStatus }
     private var isRefreshing: Bool { deviceMonitor.isRefreshing || trashMonitor.isScanning || trashMonitor.isCleaning }
@@ -49,43 +51,38 @@ struct MenuBarStatusView: View {
     var body: some View {
         VStack(spacing: 0) {
             ChargeReminderBanner()
+            VStack(spacing: 12) {
+                header
+                quickActions
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    header
-
+                VStack(alignment: .leading, spacing: 10) {
                     if let status {
-                        storageCard(status)
+                        detailCard(.storage, title: "存储空间") { storageCard(status) }
                     }
-                    DeviceMemoryTrendCard(compact: true)
-                    NetworkSpeedCard(compact: true)
-
+                    trashCard
+                    MenuBarResourceCards(onOpenMemory: { openDetail(.memory) }, onOpenCPU: { openDetail(.cpu) })
+                    detailCard(.connections, title: "网络与连接") { networkSummary }
                     HStack(alignment: .top, spacing: 10) {
-                        trashCard
-                        batteryCard(status)
+                        detailCard(.battery, title: "电池与电源") { batteryCard(status) }
+                        detailCard(.connections, title: "网络与连接") {
+                            statusCard(title: "Wi‑Fi", icon: "wifi", tint: .cyan,
+                                       value: status?.wifiState ?? "读取中…",
+                                       subtitle: status?.wifiName ?? (status == nil ? "正在读取设备状态" : "网络名称未提供"))
+                        }
                     }
+                    detailCard(.connections, title: "网络与连接") { bluetoothCard(status) }
 
-                    HStack(alignment: .top, spacing: 10) {
-                        bluetoothCard(status)
-                        statusCard(
-                            title: "Wi‑Fi",
-                            icon: "wifi",
-                            tint: .cyan,
-                            value: status?.wifiState ?? "读取中…",
-                            subtitle: status == nil ? "正在读取设备状态" : (status?.wifiName ?? "网络名称未提供"),
-                            height: 116
-                        )
-                    }
                 }
-                .padding(16)
+                .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 12)
             }
             Divider()
             footer
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-                .background(Theme.reviewCanvas(.blue))
+                .padding(.top, 8)
+                .padding(.bottom, 10)
         }
-        .frame(width: 330, height: 570)
+        .frame(width: Self.popupSize.width, height: Self.popupSize.height)
         .background(Theme.reviewCanvas(.blue))
         .background(MenuBarPopupWindowReader(holder: popupWindowHolder))
         .task {
@@ -99,15 +96,26 @@ struct MenuBarStatusView: View {
 
     }
 
+    /// 只包裹只读卡片，保持原组件尺寸；避免嵌套清空等独立操作按钮。
+    private func detailCard<Content: View>(_ page: AppActionCoordinator.DeviceDetailPage, title: String,
+                                           @ViewBuilder content: () -> Content) -> some View {
+        Button {
+            openDetail(page)
+        } label: {
+            content().contentShape(Rectangle())
+        }
+        .buttonStyle(WorkspacePressStyle())
+        .help("打开" + title + "详情")
+        .accessibilityLabel("打开" + title + "详情")
+    }
+
     private var header: some View {
         HStack(spacing: 11) {
             Button(action: openMainWindow) {
                 HStack(spacing: 11) {
                     Image(systemName: "internaldrive.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 11))
+                        .moduleIconPlate(tint: .indigo, size: 38, radius: 11)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("cleanMac")
@@ -128,6 +136,7 @@ struct MenuBarStatusView: View {
             .help("打开 cleanMac 主页面")
             .accessibilityLabel("打开 cleanMac 主页面")
 
+            Group {
             if isRefreshing {
                 ProgressView()
                     .controlSize(.small)
@@ -144,92 +153,96 @@ struct MenuBarStatusView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(ReadableControlButtonStyle(iconOnly: true))
                 .help("刷新设备状态")
                 .accessibilityLabel("刷新设备状态")
             }
+            }.frame(width: 36, height: 36)
+            Button { NSApplication.shared.terminate(nil) } label: {
+                Image(systemName: "power").font(.system(size: 13, weight: .semibold))
+            }.buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: .orange))
+                .help("退出 cleanMac").accessibilityLabel("退出 cleanMac")
         }
     }
 
     private var trashCard: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Label("废纸篓", systemImage: "trash.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.red)
-                Spacer()
-                if trashMonitor.isScanning || trashMonitor.isCleaning {
-                    ProgressView().controlSize(.small)
-                }
-            }
-
-            if let status = trashMonitor.status {
-                Text(FileSizeFormatter.string(fromByteCount: status.bytes))
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                if let percent = trashMonitor.percentage {
-                    GeometryReader { geometry in
-                        Capsule()
-                            .fill(Color.red.opacity(0.12))
-                            .overlay(alignment: .leading) {
-                                Capsule()
-                                    .fill(trashMonitor.isOverLimit ? Color.red : Color.orange)
-                                    .frame(width: geometry.size.width * min(1, Double(percent) / 100))
-                            }
+        HStack(alignment: .center, spacing: 12) {
+            Button {
+                AppActionCoordinator.shared.requestTrashReview()
+                openMainWindow()
+            } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        PopupCardHeading(title: "废纸篓", symbol: "trash.fill", tint: .red)
+                        Spacer()
+                        if trashMonitor.isScanning || trashMonitor.isCleaning {
+                            ProgressView().controlSize(.small)
+                        }
                     }
-                    .frame(height: 5)
-                }
 
-                Text(status.error != nil ? "部分项目无法读取"
-                    : trashMonitor.actionMessage
-                        ?? (trashMonitor.isOverLimit ? "\(status.itemCount) 项 · 已超警戒"
-                            : "\(status.itemCount) 项 · 警戒 \(trashMonitor.limit.title)"))
-                    .font(.system(size: 10))
-                    .foregroundColor(status.error != nil ? .orange : trashMonitor.isOverLimit ? .red : .secondary)
-                    .lineLimit(2)
-                    .help(status.error == nil
-                        ? (trashMonitor.actionMessage ?? "警戒值：\(trashMonitor.limit.title)")
-                        : "部分废纸篓无法读取，请检查磁盘访问权限。")
-            } else {
-                Text("计算中…")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                Text("正在读取废纸篓")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
+                    if let status = trashMonitor.status {
+                        Text(FileSizeFormatter.string(fromByteCount: status.bytes))
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+
+                        if let percent = trashMonitor.percentage {
+                            GeometryReader { geometry in
+                                Capsule()
+                                    .fill(Color.red.opacity(0.12))
+                                    .overlay(alignment: .leading) {
+                                        Capsule()
+                                            .fill(trashMonitor.isOverLimit ? Color.red : Color.orange)
+                                            .frame(width: geometry.size.width * min(1, Double(percent) / 100))
+                                    }
+                            }
+                            .frame(height: 5)
+                        }
+
+                        Text(status.error != nil ? "部分项目无法读取"
+                            : trashMonitor.actionMessage
+                                ?? (trashMonitor.isOverLimit ? "\(status.itemCount) 项 · 已超警戒"
+                                    : "\(status.itemCount) 项 · 警戒 \(trashMonitor.limit.title)"))
+                            .font(.system(size: 10))
+                            .foregroundColor(status.error != nil ? .orange : trashMonitor.isOverLimit ? .red : .secondary)
+                            .lineLimit(2)
+                            .help(status.error == nil
+                                ? (trashMonitor.actionMessage ?? "警戒值：\(trashMonitor.limit.title)")
+                                : "部分废纸篓无法读取，请检查磁盘访问权限。")
+                    } else {
+                        Text("计算中…")
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                        Text("正在读取废纸篓")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain).help("打开废纸篓详情")
+                .accessibilityLabel("打开废纸篓详情")
 
             Spacer(minLength: 0)
 
-            Button {
+            Button(role: .destructive) {
                 Task { await trashMonitor.emptyTrash() }
             } label: {
                 Label(trashMonitor.isCleaning ? "清空中…" : "清空废纸篓", systemImage: "trash.slash")
                     .font(.system(size: 10, weight: .semibold))
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(ReadableControlButtonStyle())
             .controlSize(.small)
             .tint(.red)
             .help("立即永久删除废纸篓中可访问的项目")
             .disabled(trashMonitor.isScanning || trashMonitor.isCleaning || trashMonitor.status == nil || trashMonitor.status?.itemCount == 0 || trashMonitor.status?.error != nil)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        .frame(height: 156, alignment: .top)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.cardStroke))
+        .popupCard()
     }
 
     private func storageCard(_ status: DeviceQuickStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("可用空间")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
+                PopupCardHeading(title: "可用空间", symbol: "internaldrive", tint: .blue)
                 Spacer()
                 Text(status.totalBytes > 0 ? FileSizeFormatter.string(fromByteCount: status.freeBytes) : "未提供")
                     .font(.system(size: 25, weight: .bold, design: .rounded))
@@ -255,30 +268,23 @@ struct MenuBarStatusView: View {
             .font(.system(size: 10))
             .foregroundColor(.secondary)
         }
-        .padding(14)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.cardStroke))
+        .popupCard()
     }
 
-    private func statusCard(title: String, icon: String, tint: Color, value: String, subtitle: String, height: CGFloat) -> some View {
+    private func statusCard(title: String, icon: String, tint: Color, value: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(tint)
+            PopupCardHeading(title: title, symbol: icon, tint: tint)
             Text(value)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .lineLimit(1)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .lineLimit(1).minimumScaleFactor(0.75).frame(height: 25, alignment: .leading)
             Text(subtitle)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
-                .lineLimit(1)
+                .lineLimit(2).frame(height: 28, alignment: .topLeading)
                 .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .frame(height: height, alignment: .top)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.cardStroke))
+        .popupCard()
     }
 
     private func batteryCard(_ status: DeviceQuickStatus?) -> some View {
@@ -301,119 +307,57 @@ struct MenuBarStatusView: View {
             icon: charging ? "battery.100percent.bolt" : low ? (level ?? 100) <= 5 ? "battery.0percent" : "battery.25percent" : "battery.100percent",
             tint: needsCharge ? (level ?? 100) <= 10 ? .red : .orange : .green,
             value: level.map { "\($0)%" } ?? "读取中…",
-            subtitle: subtitle,
-            height: 156
+            subtitle: subtitle
         )
     }
 
     private func bluetoothCard(_ status: DeviceQuickStatus?) -> some View {
-        let chargingDevice = status?.connectedBluetoothDevices.first { $0.isCharging == true }
-        let lowBatteryDevices = (status?.connectedBluetoothDevices ?? []).compactMap { device -> (name: String, level: Int)? in
-            guard device.needsCharge, let level = device.batteryLevel else { return nil }
-            return (device.name, level)
-        }
-        let chargePrompt: String? = lowBatteryDevices.first.map { first in
-            lowBatteryDevices.count == 1
-                ? "\(first.name) \(first.level)% · 请充电"
-                : "\(lowBatteryDevices.count) 台设备低电量 · 请充电"
-        }
-        let warningTint: Color = (lowBatteryDevices.map(\.level).min() ?? 100) <= 10 ? .red : .orange
+        MenuBarBluetoothCard(devices: status?.connectedBluetoothDevices, state: status?.bluetoothState)
+    }
 
-        return VStack(alignment: .leading, spacing: 8) {
-            Label("蓝牙", systemImage: "wave.3.right")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.indigo)
-
-            if let chargingDevice {
-                ChargingBatteryBadge(device: chargingDevice, fontSize: 22)
-                Text(chargingDevice.name)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(chargingDevice.name)
-            } else {
-                Text(status.map { $0.bluetoothState == "已开启" ? "已连接 \($0.connectedBluetoothDevices.count) 台" : $0.bluetoothState } ?? "读取中…")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-
-                if let chargePrompt {
-                    Label(chargePrompt, systemImage: "battery.25percent")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(warningTint)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .help(lowBatteryDevices.map { "\($0.name)：\($0.level)% · 请充电" }.joined(separator: "\n"))
-                } else {
-                    Text(status?.connectedBluetoothDevices.sorted {
-                        ($0.isCharging == true ? 0 : 1) < ($1.isCharging == true ? 0 : 1)
-                    }.first.map { "\($0.name) · \($0.batteryDescription)" }
-                        ?? (status == nil ? "正在读取设备状态" : "当前没有已连接设备"))
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                }
-            }
+    private var quickActions: some View {
+        HStack(spacing: 10) {
+            Button {
+                AppActionCoordinator.shared.requestOverviewScan()
+                openMainWindow()
+            } label: {
+                Label("扫描清理", systemImage: "magnifyingglass").frame(maxWidth: .infinity)
+            }.buttonStyle(ReadableControlButtonStyle(prominent: true))
+                .disabled(mainViewModel.isScanning || mainViewModel.isCleaning)
+            Button {
+                AppActionCoordinator.shared.requestDeepScan()
+                openMainWindow()
+            } label: {
+                Label("深度清理", systemImage: "sparkle.magnifyingglass").frame(maxWidth: .infinity)
+            }.buttonStyle(ReadableControlButtonStyle())
+                .disabled(mainViewModel.isScanning || mainViewModel.isCleaning)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        .frame(height: 116, alignment: .top)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(lowBatteryDevices.isEmpty ? Theme.cardStroke : warningTint.opacity(0.55)))
+    }
+
+    private var networkSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PopupCardHeading(title: "实时网速", symbol: "network", tint: .blue)
+            HStack(spacing: 14) {
+                Label(networkMonitor.isActive ? networkMonitor.throughput.downloadText : "采样中…", systemImage: "arrow.down")
+                    .foregroundStyle(.blue)
+                Spacer(minLength: 0)
+                Label(networkMonitor.isActive ? networkMonitor.throughput.uploadText : "采样中…", systemImage: "arrow.up")
+                    .foregroundStyle(.purple)
+            }.font(.system(size: 14, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+        }.popupCard()
     }
 
     private var footer: some View {
-        VStack(spacing: 9) {
-            HStack(spacing: 8) {
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Label("退出 App", systemImage: "power")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 34)
-                        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 9))
-                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.cardStroke))
-                }
-                .buttonStyle(.plain)
-                .help("退出 cleanMac")
-
-                Button {
-                    AppActionCoordinator.shared.requestOverviewScan()
-                    openMainWindow()
-                } label: {
-                    Label("扫描清理", systemImage: "magnifyingglass")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity, minHeight: 34)
-                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .help("打开 cleanMac 并扫描清理项目")
-
-                Button {
-                    AppActionCoordinator.shared.requestDeepScan()
-                    openMainWindow()
-                } label: {
-                    Label("深度清理", systemImage: "sparkle.magnifyingglass")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity, minHeight: 34)
-                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .help("打开 cleanMac 并开始深度清理")
-                .disabled(mainViewModel.isScanning || mainViewModel.isCleaning)
-                .opacity(mainViewModel.isScanning || mainViewModel.isCleaning ? 0.5 : 1)
-            }
-
-            if let status {
-                Text("更新于 \(status.capturedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
+        HStack {
+            Text(status.map { "更新于 " + $0.capturedAt.formatted(date: .omitted, time: .shortened) } ?? "正在更新设备状态…")
+                .font(.system(size: 10)).foregroundStyle(Theme.navigationSecondary)
+            Spacer()
         }
+    }
+
+    private func openDetail(_ page: AppActionCoordinator.DeviceDetailPage) {
+        AppActionCoordinator.shared.requestDeviceDetail(page)
+        openMainWindow()
     }
 
     private func refresh() async {
@@ -433,4 +377,9 @@ struct MenuBarRootView: View {
     var body: some View {
         MenuBarStatusView()
     }
+}
+
+#Preview("状态栏速览") {
+    MenuBarStatusView()
+        .task { await DeviceStatusMonitor.shared.refresh() }
 }

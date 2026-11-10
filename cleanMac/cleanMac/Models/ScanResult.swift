@@ -6,6 +6,7 @@ nonisolated struct ScanResult: Identifiable, Sendable {
     let category: ScanCategory
     var items: [FileItem]
     var overlappingItems: [FileItem] = []
+    var updatedAt: Date? = nil
     var isScanning: Bool = false
     var isCleaned: Bool = false
     var error: String?

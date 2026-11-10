@@ -29,7 +29,8 @@ struct CleaningHistoryView: View {
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             HStack(spacing: 16) {
-                TextField("搜索应用、文件名或原路径", text: $search).textFieldStyle(.roundedBorder)
+                ExpandableSearchField(placeholder: "搜索应用、文件名或原路径", text: $search)
+                Spacer(minLength: 8)
                 Toggle("仅看移到废纸篓的项目", isOn: $restorableOnly).toggleStyle(.checkbox)
             }
             if let storeError { Label(storeError, systemImage: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(.orange) }

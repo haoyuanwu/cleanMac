@@ -21,6 +21,7 @@ class MainViewModel: ObservableObject {
     @Published var storageInfo: StorageInfo?
     
     @Published var scanResults: [ScanCategory: ScanResult] = [:]
+    @Published private(set) var applicationInventorySummary: ApplicationInventorySummary?
     @Published private(set) var applicationCacheComparison: CacheScanComparison?
     @Published var selectedCategory: ScanCategory?
     @Published var scanState: ScanState = .idle
@@ -321,8 +322,11 @@ class MainViewModel: ObservableObject {
         if category == .applicationCache { applicationCacheScanFingerprint = rules.fingerprint }
         let collector = ScanDiagnosticsCollector()
         activeScanCollectors[category] = collector
-        scanResults[category] = ScanResult(category: category, items: [], isScanning: true,
-                                         diagnostics: collector.snapshot())
+        var refreshing = scanResults[category] ?? ScanResult(category: category, items: [])
+        refreshing.isScanning = true
+        refreshing.error = nil
+        refreshing.diagnostics = collector.snapshot()
+        scanResults[category] = refreshing
         let progress = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
@@ -359,7 +363,7 @@ class MainViewModel: ObservableObject {
         case .largeFiles:
             items = await scanService.scanLargeFiles()
         case .applications:
-            items = await scanService.scanApplications()
+            items = await scanService.scanApplications(forceFull: forceFull)
         case .installers:
             items = await scanService.scanInstallers()
         }
@@ -371,11 +375,18 @@ class MainViewModel: ObservableObject {
             return
         }
         let diagnostics = collector.snapshot(finished: true, cancelled: Task.isCancelled)
+        if Task.isCancelled || diagnostics.status == .cancelled {
+            scanResults[category]?.isScanning = false
+            scanResults[category]?.diagnostics = diagnostics
+            return
+        }
+        if category == .applications { applicationInventorySummary = scanService.applicationSummary }
         scanResults[category] = ScanResult(
             category: category,
             items: items
                 .map { SafetyWhitelist.annotated($0, category: category) }
                 .filter { SafetyWhitelist.canDelete(path: $0.path) && !UserWhitelist.isWhitelisted($0.path) },
+            updatedAt: Date(),
             error: diagnostics.summary ?? scanError,
             diagnostics: diagnostics
         )

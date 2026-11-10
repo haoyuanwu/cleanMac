@@ -48,6 +48,7 @@
 			isa = PBXGroup;
 			children = (
 				9630E215303D2CDB00EBB0A3 /* cleanMac.app */,
+                C0DE00000000000000000002 /* cleanMacMemoryHelper */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -62,11 +63,12 @@
 				9630E211303D2CDB00EBB0A3 /* Sources */,
 				9630E212303D2CDB00EBB0A3 /* Frameworks */,
 				9630E213303D2CDB00EBB0A3 /* Resources */,
+				C0DE00000000000000000011 /* Embed Memory Helper */,
+                C0DE00000000000000000012 /* Embed Helper Plist */,
 			);
 			buildRules = (
 			);
-			dependencies = (
-			);
+			dependencies = (C0DE00000000000000000013);
 			fileSystemSynchronizedGroups = (
 				9630E217303D2CDB00EBB0A3 /* cleanMac */,
 			);
@@ -81,6 +83,23 @@
 		};
 /* End PBXNativeTarget section */
 
+
+        C0DE00000000000000000001 = {isa = PBXNativeTarget; buildConfigurationList = C0DE00000000000000000009; buildPhases = (C0DE00000000000000000008); buildRules = (); dependencies = (); name = cleanMacMemoryHelper; productName = cleanMacMemoryHelper; productReference = C0DE00000000000000000002; productType = "com.apple.product-type.tool"; };
+        C0DE00000000000000000002 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cleanMacMemoryHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+        C0DE00000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryHelper/main.swift; sourceTree = SOURCE_ROOT; };
+        C0DE00000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cleanMac/Services/MemoryHelperProtocol.swift; sourceTree = SOURCE_ROOT; };
+        C0DE00000000000000000005 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = MemoryHelper/com.cleanMac.cache.cleanMac.memory-helper.plist; sourceTree = SOURCE_ROOT; };
+        C0DE00000000000000000006 = {isa = PBXBuildFile; fileRef = C0DE00000000000000000003; };
+        C0DE00000000000000000007 = {isa = PBXBuildFile; fileRef = C0DE00000000000000000004; };
+        C0DE00000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C0DE00000000000000000006, C0DE00000000000000000007); runOnlyForDeploymentPostprocessing = 0; };
+        C0DE00000000000000000009 = {isa = XCConfigurationList; buildConfigurations = (C0DE0000000000000000000A, C0DE0000000000000000000B); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        C0DE0000000000000000000A = {isa = XCBuildConfiguration; name = Debug; buildSettings = {ARCHS = arm64; PRODUCT_NAME = cleanMacMemoryHelper; PRODUCT_BUNDLE_IDENTIFIER = com.cleanMac.cache.cleanMac.memory-helper; MACOSX_DEPLOYMENT_TARGET = 13.5; SDKROOT = macosx; SWIFT_VERSION = 5.0; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = XSHY85VP6T; ENABLE_HARDENED_RUNTIME = YES; OTHER_CODE_SIGN_FLAGS = "--identifier com.cleanMac.cache.cleanMac.memory-helper"; CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO; SKIP_INSTALL = YES; }; };
+        C0DE0000000000000000000B = {isa = XCBuildConfiguration; name = Release; buildSettings = {ARCHS = arm64; PRODUCT_NAME = cleanMacMemoryHelper; PRODUCT_BUNDLE_IDENTIFIER = com.cleanMac.cache.cleanMac.memory-helper; MACOSX_DEPLOYMENT_TARGET = 13.5; SDKROOT = macosx; SWIFT_VERSION = 5.0; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = XSHY85VP6T; ENABLE_HARDENED_RUNTIME = YES; OTHER_CODE_SIGN_FLAGS = "--identifier com.cleanMac.cache.cleanMac.memory-helper"; CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO; SKIP_INSTALL = YES; }; };
+        C0DE0000000000000000000C = {isa = PBXBuildFile; fileRef = C0DE00000000000000000002; settings = {ATTRIBUTES = (CodeSignOnCopy); }; };
+        C0DE0000000000000000000D = {isa = PBXBuildFile; fileRef = C0DE00000000000000000005; };
+        C0DE00000000000000000011 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = Contents/Library/HelperTools; dstSubfolderSpec = 1; files = (C0DE0000000000000000000C); name = "Embed Memory Helper"; runOnlyForDeploymentPostprocessing = 0; };
+        C0DE00000000000000000012 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = Contents/Library/LaunchDaemons; dstSubfolderSpec = 1; files = (C0DE0000000000000000000D); name = "Embed Helper Plist"; runOnlyForDeploymentPostprocessing = 0; };
+        C0DE00000000000000000013 = {isa = PBXTargetDependency; target = C0DE00000000000000000001; };
 /* Begin PBXProject section */
 		9630E20D303D2CDB00EBB0A3 /* Project object */ = {
 			isa = PBXProject;
@@ -112,6 +131,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                C0DE00000000000000000001 /* cleanMacMemoryHelper */,
 				9630E214303D2CDB00EBB0A3 /* cleanMac */,
 			);
 		};
@@ -126,6 +146,8 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+
 
 /* Begin PBXSourcesBuildPhase section */
 		9630E211303D2CDB00EBB0A3 /* Sources */ = {
@@ -266,7 +288,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = cleanMac/cleanMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -285,7 +307,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.1.1;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cleanMac.cache.cleanMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -309,7 +331,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = cleanMac/cleanMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+                CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -328,7 +351,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.1.1;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cleanMac.cache.cleanMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

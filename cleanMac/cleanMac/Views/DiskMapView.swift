@@ -126,9 +126,7 @@ struct DiskMapView: View {
         HStack(spacing: 12) {
             Image(systemName: "chart.pie.fill")
                 .font(.system(size: 22))
-                .foregroundStyle(Theme.accentGradient)
-                .frame(width: 44, height: 44)
-                .background(Theme.accentGradientSoft, in: RoundedRectangle(cornerRadius: 13))
+                .moduleIconPlate(tint: .indigo, size: 44, radius: 13)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text("磁盘地图").font(.system(size: 21, weight: .bold, design: .rounded))
@@ -142,9 +140,9 @@ struct DiskMapView: View {
                 Divider()
                 Button("选择文件夹…", action: chooseFolder)
             } label: {
-                Label("分析位置", systemImage: "folder.badge.gearshape")
+                ReadableMenuLabel(title: "分析位置", symbol: "folder.badge.gearshape")
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button).buttonStyle(ReadableControlButtonStyle(tint: .blue))
             .fixedSize()
             .disabled(session.isLoading)
             if session.root != nil {
@@ -196,7 +194,7 @@ struct DiskMapView: View {
             Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
                 .frame(width: 28, height: 28).contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(ReadableControlButtonStyle(iconOnly: true))
         .disabled(disabled)
         .help(label)
         .accessibilityLabel(label)
@@ -236,7 +234,7 @@ struct DiskMapView: View {
                     Button("仅选择文件夹") { selectedIDs = Set(children.filter { $0.isDirectory && DiskMapSelectionPolicy.protectionReason(for: $0.path) == nil }.map(\.id)) }
                     Button("取消选择") { selectedIDs.removeAll() }
                 } label: { Text("选择").font(.system(size: 12)) }
-                .menuStyle(.borderlessButton).fixedSize()
+                .menuStyle(.button).buttonStyle(ReadableControlButtonStyle(tint: .blue)).fixedSize()
                 Spacer()
                 Menu {
                     Button("按大小") { sortByName = false }
@@ -245,7 +243,7 @@ struct DiskMapView: View {
                     Label(sortByName ? "名称" : "大小", systemImage: "arrow.down")
                         .font(.system(size: 12))
                 }
-                .menuStyle(.borderlessButton).fixedSize()
+                .menuStyle(.button).buttonStyle(ReadableControlButtonStyle(tint: .blue)).fixedSize()
             }
             .padding(.horizontal, 16).padding(.bottom, 12)
             Divider()
@@ -342,10 +340,10 @@ struct DiskMapView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 6)
-                Picker("地图样式", selection: $mapStyle) {
-                    ForEach(MapStyle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 108)
+                ChoiceSegments(title: "地图样式", selection: $mapStyle,
+                               options: MapStyle.allCases.map { ChoiceItem(value: $0, title: $0.rawValue) })
+                    .frame(width: 160)
+
             }
             .padding(16)
             ZStack {

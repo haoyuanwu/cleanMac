@@ -4,11 +4,16 @@ import AppKit
 /// 在菜单栏窗口和主窗口之间传递一次性操作请求。
 @MainActor
 final class AppActionCoordinator: ObservableObject {
+    enum DeviceDetailPage: String, CaseIterable, Sendable {
+        case cpu, memory, connections, storage, battery
+    }
     static let shared = AppActionCoordinator()
 
     @Published private(set) var overviewScanRequest = 0
     @Published private(set) var deepScanRequest = 0
     @Published private(set) var deviceInfoRequest = 0
+    @Published private(set) var deviceDetailRequest = 0
+    private var pendingDeviceDetail: DeviceDetailPage?
     @Published private(set) var trashReviewRequest = 0
     @Published private(set) var mainWindowRequest = 0
     private var hasPendingOverviewScan = false
@@ -92,6 +97,18 @@ final class AppActionCoordinator: ObservableObject {
         guard hasPendingDeviceInfo else { return false }
         hasPendingDeviceInfo = false
         return true
+    }
+
+    func requestDeviceDetail(_ page: DeviceDetailPage) {
+        hasPendingDeviceInfo = false
+        hasPendingTrashReview = false
+        pendingDeviceDetail = page
+        deviceDetailRequest += 1
+    }
+
+    func consumeDeviceDetailRequest() -> DeviceDetailPage? {
+        defer { pendingDeviceDetail = nil }
+        return pendingDeviceDetail
     }
 
     func requestTrashReview() {

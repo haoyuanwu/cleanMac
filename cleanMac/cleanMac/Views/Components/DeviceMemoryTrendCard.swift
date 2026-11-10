@@ -3,10 +3,25 @@ import SwiftUI
 struct DeviceMemoryTrendCard: View {
     var embedded = false
     var compact = false
+    var summaryOnly = false
     @ObservedObject private var monitor = DeviceMemoryMonitor.shared
     private var memorySamples: [DeviceMemorySample] { monitor.history }
     var body: some View {
-        memoryCard
+        if summaryOnly { memorySummary } else { memoryCard }
+    }
+
+    private var memorySummary: some View {
+        let current = memorySamples.last
+        return VStack(alignment: .leading, spacing: 9) {
+            Label("实时内存", systemImage: "memorychip")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(.purple)
+            Text(current.map { FileSizeFormatter.string(fromByteCount: Int64($0.usedBytes)) } ?? "读取中…")
+                .font(.system(size: 20, weight: .bold, design: .rounded)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Text(current.map { "可用 " + FileSizeFormatter.string(fromByteCount: Int64($0.totalBytes - $0.usedBytes)) } ?? "正在采集…")
+                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }.padding(embedded ? 0 : 14).frame(maxWidth: .infinity, alignment: .leading)
+            .gradientGlass(cornerRadius: 14, enabled: !embedded)
     }
 
     private var memoryCard: some View {

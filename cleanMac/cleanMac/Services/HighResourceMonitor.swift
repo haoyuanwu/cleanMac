@@ -269,7 +269,7 @@ final class ResourceAlertPresenter: NSObject, NSPopoverDelegate {
               window.frame.height > 0, window.screen != nil, !button.bounds.isEmpty else { return false }
         switch next {
         case .dashboard:
-            popover.contentSize = NSSize(width: 330, height: 570)
+            popover.contentSize = MenuBarStatusView.popupSize
             popover.contentViewController = NSHostingController(rootView: MenuBarStatusView(onOpenMainWindow: {
                 ResourceAlertPresenter.shared.close()
                 AppActionCoordinator.shared.requestMainWindow()

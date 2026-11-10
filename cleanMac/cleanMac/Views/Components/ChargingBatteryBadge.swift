@@ -3,31 +3,43 @@ import SwiftUI
 struct ChargingBatteryBadge: View {
     let device: BluetoothConnectedDevice
     var fontSize: CGFloat = 18
+    var compact = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: fontSize * 0.65, weight: .bold))
-            if let level = device.batteryLevel {
-                HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    Text("\(level)")
-                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text("%")
-                        .font(.system(size: fontSize * 0.6, weight: .semibold))
+        if compact {
+            HStack(spacing: 5) {
+                Image(systemName: "battery.100percent.bolt").font(.system(size: fontSize, weight: .semibold)).frame(width: 22)
+                Text(device.batteryLevel.map { "\($0)%" } ?? "—%")
+                    .font(.system(size: fontSize, weight: .semibold)).monospacedDigit().frame(width: 38, alignment: .trailing)
+            }.foregroundStyle(.green).fixedSize()
+                .help(device.batteryDescription)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(device.name + "，" + device.batteryDescription)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: fontSize * 0.65, weight: .bold))
+                if let level = device.batteryLevel {
+                    HStack(alignment: .firstTextBaseline, spacing: 1) {
+                        Text("\(level)")
+                            .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text("%")
+                            .font(.system(size: fontSize * 0.6, weight: .semibold))
+                    }
+                } else {
+                    Image(systemName: "battery.100percent.bolt")
+                        .font(.system(size: fontSize, weight: .semibold))
                 }
-            } else {
-                Image(systemName: "battery.100percent.bolt")
-                    .font(.system(size: fontSize, weight: .semibold))
             }
+            .foregroundStyle(.green)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.green.opacity(0.1), in: Capsule())
+            .fixedSize()
+            .help(device.batteryDescription)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(device.name)，\(device.batteryDescription)")
         }
-        .foregroundStyle(.green)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color.green.opacity(0.1), in: Capsule())
-        .fixedSize()
-        .help(device.batteryDescription)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(device.name)，\(device.batteryDescription)")
     }
 }

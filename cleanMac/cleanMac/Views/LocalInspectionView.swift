@@ -42,8 +42,8 @@ struct LocalInspectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(tint)
-                    .frame(width: 34, height: 34).background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                Image(systemName: symbol).font(.system(size: 20, weight: .semibold))
+                    .moduleIconPlate(tint: tint, size: 36, radius: 11)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title).font(.system(size: 18, weight: .bold))
@@ -52,9 +52,9 @@ struct LocalInspectionView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if kind == .startup { Button("系统登录项设置", action: openSettings) }
-                if session.loading { Button("取消扫描") { session.scanTask?.cancel() } }
-                else if session.report != nil { Button("重新扫描", action: scan).disabled(changingID != nil) }
+                if kind == .startup { Button("系统登录项设置", action: openSettings).buttonStyle(ReadableControlButtonStyle(tint: .blue)) }
+                if session.loading { Button("取消扫描") { session.scanTask?.cancel() }.buttonStyle(ReadableControlButtonStyle(tint: .orange)) }
+                else if session.report != nil { Button("重新扫描", action: scan).buttonStyle(ReadableControlButtonStyle(tint: .blue)).disabled(changingID != nil) }
             }
             if kind == .startup {
                 Toggle("包含 macOS 内置服务（仅查看）", isOn: $session.includeAppleServices)
@@ -67,13 +67,13 @@ struct LocalInspectionView: View {
                     subtitle: "读取本机信息，不加载插件或启动被扫描的程序。", collector: session.scanProgress)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let report = session.report {
-                HStack {
-                    TextField("搜索软件、项目名称或路径", text: $query).textFieldStyle(.plain)
-                        .padding(.horizontal, 10).padding(.vertical, 8).gradientGlass(cornerRadius: 10)
-                    Picker("所属软件", selection: $owner) {
-                        Text("全部").tag("全部")
-                        ForEach(Array(Set(report.items.map(\.softwareName))).sorted(), id: \.self) { Text($0).tag($0) }
-                    }.frame(maxWidth: 240)
+                HStack(spacing: 10) {
+                    ExpandableSearchField(placeholder: "搜索软件、项目名称或路径", text: $query)
+                    Spacer(minLength: 8)
+                    ChoiceDropdown(title: "所属软件", selection: $owner,
+                                   options: (["全部"] + Array(Set(report.items.map(\.softwareName))).filter { $0 != "全部" }.sorted())
+                                    .map { ChoiceItem(value: $0, title: $0) }, symbol: "line.3.horizontal.decrease")
+
                 }
                 Text("\(report.cancelled ? "已取消 · 结果不完整" : report.issues.isEmpty ? "扫描完成" : "部分位置未能读取") · \(report.items.count) 个项目 · \(report.scannedAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary)
@@ -150,7 +150,7 @@ struct LocalInspectionView: View {
                                 .font(.system(size: 11)).foregroundStyle(Theme.navigationSecondary)
                         }
                     } else { Text("状态待核对").font(.system(size: 12)).foregroundStyle(Theme.navigationSecondary) }
-                    if !item.startupCanControl { Button("系统设置", action: openSettings).font(.system(size: 12)) }
+                    if !item.startupCanControl { Button("系统设置", action: openSettings).buttonStyle(ReadableControlButtonStyle(tint: .blue)).font(.system(size: 12)) }
                     if changingID == item.id { ProgressView().controlSize(.small) }
                 } else if let size = item.size {
                     Text(FileSizeFormatter.string(fromByteCount: size)).font(.system(size: 12)).monospacedDigit()

@@ -22,10 +22,14 @@ struct TelemetryChart: View {
     let values: [TelemetryLine]
     var unit = "%"
     var upper: Double? = nil
+    var compact = false
     var body: some View {
         Group {
             if values.count < 2 {
-                ContentUnavailableTelemetry(text: "正在积累趋势数据…")
+                if compact {
+                    Text("正在采集 CPU 趋势…").font(.system(size: 10)).foregroundStyle(Theme.navigationSecondary)
+                        .frame(maxWidth: .infinity)
+                } else { ContentUnavailableTelemetry(text: "正在积累趋势数据…") }
             } else {
                 Chart(values) { point in
                     LineMark(x: .value("时间", point.date), y: .value(unit, point.value))
@@ -36,9 +40,12 @@ struct TelemetryChart: View {
                 .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.hour().minute().second()) } }
                 .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) }
                 .chartLegend(position: .bottom, alignment: .leading)
+                .chartXAxis(compact ? .hidden : .automatic)
+                .chartYAxis(compact ? .hidden : .automatic)
+                .chartLegend(compact ? .hidden : .visible)
                 .accessibilityLabel("\(unit)随时间变化，\(values.count)个数据点")
             }
-        }.frame(height: 170)
+        }.frame(height: compact ? 44 : 170)
     }
 }
 struct ContentUnavailableTelemetry: View {

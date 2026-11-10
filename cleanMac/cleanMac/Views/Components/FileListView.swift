@@ -13,6 +13,7 @@ struct FileListView: View {
     let deleteTitle: String
     let onReveal: (FileItem) -> Void
     let onOpen: (FileItem) -> Void
+    let onInspect: ((FileItem) -> Void)?
     
     @Binding var selectedFiles: Set<FileItem.ID>
     @State private var hoveredFileID: FileItem.ID?
@@ -30,6 +31,7 @@ struct FileListView: View {
         onDeleteBatch: (([FileItem]) -> Void)? = nil,
         deleteTitle: String = "移到废纸篓",
         onReveal: @escaping (FileItem) -> Void,
+        onInspect: ((FileItem) -> Void)? = nil,
         onOpen: @escaping (FileItem) -> Void
     ) {
         self.files = files
@@ -42,6 +44,7 @@ struct FileListView: View {
         self.deleteTitle = deleteTitle
         self.onReveal = onReveal
         self.onOpen = onOpen
+        self.onInspect = onInspect
     }
     
     /// 当前选中的文件对象
@@ -184,6 +187,9 @@ struct FileListView: View {
             Divider()
         }
 
+        if count == 1, let onInspect {
+            Button("查看占用详情") { onInspect(file) }
+        }
         // 打开（单选）
         if count == 1 {
             Button { onOpen(file) } label: {
@@ -297,7 +303,7 @@ struct FileCardRow: View {
             Button(action: onToggleSelection) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.85))
+                    .foregroundColor(isSelected ? Theme.actionInk : Theme.actionInk.opacity(0.7))
                     .frame(width: 28, height: 36)
                     .contentShape(Rectangle())
             }
@@ -424,8 +430,6 @@ private struct IconOnlyButton: View {
     let help: String
     var role: ButtonRole?
     let action: () -> Void
-    @State private var isHovered = false
-
     var body: some View {
         Button(role: role, action: action) {
             Image(systemName: systemImage)
@@ -433,28 +437,8 @@ private struct IconOnlyButton: View {
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(ActionIconButtonStyle(isHovered: isHovered, isDestructive: role == .destructive))
-        .onHover { isHovered = $0 }
+        .buttonStyle(ReadableControlButtonStyle(iconOnly: true, tint: .blue))
         .help(help)
         .accessibilityLabel(help)
-    }
-}
-
-private struct ActionIconButtonStyle: ButtonStyle {
-    let isHovered: Bool
-    let isDestructive: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(isDestructive ? .red : (isHovered ? .primary : .secondary))
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isDestructive && (isHovered || configuration.isPressed)
-                          ? Color.red.opacity(configuration.isPressed ? 0.22 : 0.12)
-                          : Color.primary.opacity(configuration.isPressed ? 0.16 : (isHovered ? 0.10 : 0.05)))
-            )
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(Theme.springSnappy, value: isHovered)
-            .animation(Theme.springSnappy, value: configuration.isPressed)
     }
 }

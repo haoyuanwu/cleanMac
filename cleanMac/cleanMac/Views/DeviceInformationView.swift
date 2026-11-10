@@ -51,7 +51,12 @@ struct DeviceInformationView: View {
     @ViewBuilder private var sectionContent: some View {
         switch section {
         case .memory:
-            dashboardBand { DeviceMemoryTrendCard(embedded: true) }
+            dashboardBand {
+                VStack(alignment: .leading, spacing: 12) {
+                    DeviceMemoryTrendCard(embedded: true)
+                    MemoryMaintenanceButton()
+                }
+            }
             MemoryPressurePanel()
         case .connections:
             dashboardBand {
@@ -283,9 +288,7 @@ struct DeviceInformationView: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(tint)
-                .frame(width: 36, height: 36)
-                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .moduleIconPlate(tint: tint, size: 36, radius: 10)
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
         }
@@ -406,9 +409,7 @@ struct DeviceFeatureHeader: View {
         HStack(spacing: 16) {
             Image(systemName: destination.symbol)
                 .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(destination.color)
-                .frame(width: 36, height: 36)
-                .background(destination.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .moduleIconPlate(tint: destination.color, size: 36, radius: 11)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(destination.title).font(.system(size: 18, weight: .bold, design: .rounded))
