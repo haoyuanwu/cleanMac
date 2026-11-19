@@ -40,13 +40,16 @@ struct MenuBarStatusView: View {
     var onOpenMainWindow: (() -> Void)? = nil
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var trashActionRunning = false
+    @State private var trashActionSucceeded = false
     @State private var popupWindowHolder = MenuBarPopupWindowHolder()
     @ObservedObject private var trashMonitor = TrashMonitor.shared
     @ObservedObject private var mainViewModel = MainViewModel.shared
     @ObservedObject private var networkMonitor = NetworkSpeedMonitor.shared
     @ObservedObject private var deviceMonitor = DeviceStatusMonitor.shared
     private var status: DeviceQuickStatus? { deviceMonitor.snapshot?.quickStatus }
-    private var isRefreshing: Bool { deviceMonitor.isRefreshing || trashMonitor.isScanning || trashMonitor.isCleaning }
+    private var isRefreshing: Bool { deviceMonitor.isRefreshing || (trashMonitor.isScanning && !trashActionRunning) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -166,77 +169,86 @@ struct MenuBarStatusView: View {
     }
 
     private var trashCard: some View {
-        HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                PopupCardHeading(title: "废纸篓", symbol: "trash.fill", tint: .red)
+                if trashMonitor.isScanning && !trashActionRunning {
+                    ProgressView().controlSize(.mini)
+                }
+                Spacer(minLength: 8)
+                trashActionButton
+            }
+
             Button {
                 AppActionCoordinator.shared.requestTrashReview()
                 openMainWindow()
             } label: {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack {
-                        PopupCardHeading(title: "废纸篓", symbol: "trash.fill", tint: .red)
-                        Spacer()
-                        if trashMonitor.isScanning || trashMonitor.isCleaning {
-                            ProgressView().controlSize(.small)
-                        }
-                    }
-
-                    if let status = trashMonitor.status {
-                        Text(FileSizeFormatter.string(fromByteCount: status.bytes))
+                VStack(spacing: 7) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(trashMonitor.status.map { FileSizeFormatter.string(fromByteCount: $0.bytes) } ?? "计算中…")
                             .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-
-                        if let percent = trashMonitor.percentage {
-                            GeometryReader { geometry in
-                                Capsule()
-                                    .fill(Color.red.opacity(0.12))
-                                    .overlay(alignment: .leading) {
-                                        Capsule()
-                                            .fill(trashMonitor.isOverLimit ? Color.red : Color.orange)
-                                            .frame(width: geometry.size.width * min(1, Double(percent) / 100))
-                                    }
-                            }
-                            .frame(height: 5)
-                        }
-
-                        Text(status.error != nil ? "部分项目无法读取"
-                            : trashMonitor.actionMessage
-                                ?? (trashMonitor.isOverLimit ? "\(status.itemCount) 项 · 已超警戒"
-                                    : "\(status.itemCount) 项 · 警戒 \(trashMonitor.limit.title)"))
+                            .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+                        Spacer(minLength: 0)
+                        Text(trashStatusText)
                             .font(.system(size: 10))
-                            .foregroundColor(status.error != nil ? .orange : trashMonitor.isOverLimit ? .red : .secondary)
-                            .lineLimit(2)
-                            .help(status.error == nil
-                                ? (trashMonitor.actionMessage ?? "警戒值：\(trashMonitor.limit.title)")
-                                : "部分废纸篓无法读取，请检查磁盘访问权限。")
-                    } else {
-                        Text("计算中…")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                        Text("正在读取废纸篓")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(trashMonitor.status?.error != nil ? Color.orange : Theme.navigationSecondary)
+                            .multilineTextAlignment(.trailing).lineLimit(2)
                     }
-
+                    if let percent = trashMonitor.percentage {
+                        GeometryReader { geometry in
+                            Capsule().fill(Color.red.opacity(0.12))
+                                .overlay(alignment: .leading) {
+                                    Capsule().fill(trashMonitor.isOverLimit ? Color.red : Color.orange)
+                                        .frame(width: geometry.size.width * min(1, Double(percent) / 100))
+                                }
+                        }.frame(height: 4)
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).help("打开废纸篓详情")
-                .accessibilityLabel("打开废纸篓详情")
-
-            Spacer(minLength: 0)
-
-            Button(role: .destructive) {
-                Task { await trashMonitor.emptyTrash() }
-            } label: {
-                Label(trashMonitor.isCleaning ? "清空中…" : "清空废纸篓", systemImage: "trash.slash")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .buttonStyle(ReadableControlButtonStyle())
-            .controlSize(.small)
-            .tint(.red)
-            .help("立即永久删除废纸篓中可访问的项目")
-            .disabled(trashMonitor.isScanning || trashMonitor.isCleaning || trashMonitor.status == nil || trashMonitor.status?.itemCount == 0 || trashMonitor.status?.error != nil)
+                .accessibilityLabel("打开废纸篓详情，" + trashStatusText)
         }
+        .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.82), value: trashActionRunning)
+        .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.82), value: trashActionSucceeded)
         .popupCard()
+    }
+
+    private var trashStatusText: String {
+        guard let status = trashMonitor.status else { return "正在读取废纸篓" }
+        if status.error != nil { return "部分项目无法读取" }
+        return trashMonitor.actionMessage ?? (trashMonitor.isOverLimit
+            ? "\(status.itemCount) 项 · 已超警戒" : "\(status.itemCount) 项 · 警戒 \(trashMonitor.limit.title)")
+    }
+
+    private var trashActionButton: some View {
+            Button {
+                guard !trashActionSucceeded, !trashActionRunning, !trashMonitor.isCleaning else { return }
+                trashActionRunning = true
+                Task { @MainActor in
+                    let started = ContinuousClock.now
+                    let succeeded = await trashMonitor.emptyTrash()
+                    // 很快完成时也让进度有足够的可感知时间，不延迟实际清理。
+                    let remaining = Duration.milliseconds(450) - started.duration(to: .now)
+                    if remaining > .zero { try? await Task.sleep(for: remaining) }
+                    trashActionSucceeded = succeeded
+                    trashActionRunning = false
+                }
+            } label: {
+                PopupOperationLabel(title: "清空废纸篓", runningTitle: "清空中…", symbol: "trash.slash",
+                                    running: trashActionRunning || trashMonitor.isCleaning,
+                                    succeeded: trashActionSucceeded)
+            }
+            .buttonStyle(ReadableControlButtonStyle(tint: trashActionSucceeded ? .green : .red, compact: true,
+                                                   inProgress: trashActionRunning || trashMonitor.isCleaning))
+            .help(trashActionSucceeded ? "废纸篓已清空" : "立即永久删除废纸篓中可访问的项目")
+            // 完成态保留鲜明反馈，空废纸篓恢复后再显示禁用状态。
+            .disabled(!trashActionSucceeded && (trashMonitor.isScanning || trashMonitor.isCleaning || trashActionRunning
+                || trashMonitor.status == nil || trashMonitor.status?.itemCount == 0 || trashMonitor.status?.error != nil))
+            .allowsHitTesting(!trashActionSucceeded)
+            .task(id: trashActionSucceeded) {
+                guard trashActionSucceeded else { return }
+                do { try await Task.sleep(for: .milliseconds(1400)) } catch { return }
+                trashActionSucceeded = false
+            }
     }
 
     private func storageCard(_ status: DeviceQuickStatus) -> some View {

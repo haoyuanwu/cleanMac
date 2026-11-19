@@ -117,8 +117,10 @@ final class TrashMonitor: ObservableObject {
     }
 
     /// 菜单栏入口按用户选择直接清空，不依赖可能过期的上次扫描结果。
-    func emptyTrash() async {
-        guard !isCleaning, !isScanning else { return }
+    @discardableResult
+    func emptyTrash() async -> Bool {
+        guard !isCleaning, !isScanning else { return false }
+        var succeeded = false
         isCleaning = true
         actionMessage = nil
 
@@ -127,8 +129,10 @@ final class TrashMonitor: ObservableObject {
             actionMessage = "无法读取部分废纸篓，请检查完全磁盘访问权限。"
         } else if latest.items.isEmpty {
             actionMessage = "废纸篓已是空的"
+            succeeded = true
         } else {
             let outcome = await cleanService.emptyTrash(items: latest.items)
+            succeeded = outcome.failedCount == 0
             actionMessage = outcome.failedCount == 0
                 ? "已清理 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes))"
                 : "已清理 \(FileSizeFormatter.string(fromByteCount: outcome.cleanedBytes))，\(outcome.failedCount) 项未能删除"
@@ -137,6 +141,7 @@ final class TrashMonitor: ObservableObject {
 
         isCleaning = false
         await refresh(force: true)
+        return succeeded && status?.error == nil && status?.itemCount == 0
     }
 
     private func notifyIfNeeded() async {

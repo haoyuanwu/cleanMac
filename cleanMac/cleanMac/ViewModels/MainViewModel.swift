@@ -925,6 +925,8 @@ class MainViewModel: ObservableObject {
             showingAlert = true
             return
         }
+        // 卸载开始后停止旧快照更新，防止扫描结果把已移除的应用重新带回列表。
+        if scanResults[.applications]?.isScanning == true { cancelCategoryScan(.applications) }
         isUninstalling = true
         defer { isUninstalling = false }
 

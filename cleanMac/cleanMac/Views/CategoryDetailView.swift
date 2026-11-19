@@ -124,14 +124,18 @@ struct CategoryDetailView: View {
                     headerBar
                 }
 
+                if result?.isScanning == true && result?.items.isEmpty == false {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("正在后台更新，可继续浏览和操作")
+                        Spacer()
+                    }.font(.system(size: 12)).padding(.horizontal, 22).padding(.vertical, 10)
+                }
+
                 if let result = result {
-                    if result.isScanning && !result.items.isEmpty {
-                        HStack(spacing: 10) {
-                            ProgressView().controlSize(.small)
-                            Text("正在后台更新，当前展示上次扫描结果")
-                            Spacer()
-                        }.font(.system(size: 12)).padding(.horizontal, 22).padding(.vertical, 10)
-                        fileListContent.disabled(true)
+                    // 更新前后始终使用同一分支，保留 ScrollView 和列表交互状态。
+                    if !result.items.isEmpty {
+                        fileListContent
                     } else if result.isScanning {
                         VStack(spacing: 12) {
                             scanningView

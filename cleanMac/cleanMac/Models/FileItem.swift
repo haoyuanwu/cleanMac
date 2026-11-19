@@ -3,7 +3,7 @@ import AppKit
 
 /// 单个可清理文件
 struct FileItem: Identifiable, Hashable, @unchecked Sendable {
-    let id = UUID()
+    let id: UUID
     let path: String
     let name: String
     let size: Int64
@@ -17,7 +17,8 @@ struct FileItem: Identifiable, Hashable, @unchecked Sendable {
     var cacheApplication: CacheApplication?
     var cacheRuleMatch: CacheRuleMatch?
 
-    nonisolated init(path: String, name: String, size: Int64, modificationDate: Date?, isDirectory: Bool, appIcon: NSImage? = nil, storage: FileStorageMeasurement? = nil) {
+    nonisolated init(id: UUID = UUID(), path: String, name: String, size: Int64, modificationDate: Date?, isDirectory: Bool, appIcon: NSImage? = nil, storage: FileStorageMeasurement? = nil) {
+        self.id = id
         self.path = path
         self.name = name
         self.size = size

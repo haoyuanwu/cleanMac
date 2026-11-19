@@ -280,6 +280,7 @@ final class ScanService: @unchecked Sendable {
                 let attributes = try? fileManager.attributesOfItem(atPath: path)
                 guard attributes != nil else { continue }
                 let item = FileItem(
+                    id: applicationInventory[path]?.item.id ?? UUID(),
                     path: path,
                     name: ApplicationNameResolver.displayName(atPath: path),
                     size: size,

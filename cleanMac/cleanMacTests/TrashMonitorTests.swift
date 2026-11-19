@@ -13,6 +13,32 @@ final class TrashMonitorTests: XCTestCase {
                                              modificationDate: nil, isDirectory: false)], error: nil)
     }
 
+    func testEmptyTrashReportsVerifiedSuccessAndReadFailureWithoutDeletingFiles() {
+        runOnMain {
+            let empty = TrashMonitor(scanTrash: { Self.outcome(0) }, notificationsEnabled: false)
+            let emptySucceeded = await empty.emptyTrash()
+            XCTAssertTrue(emptySucceeded)
+            XCTAssertFalse(empty.isCleaning)
+            XCTAssertEqual(empty.status?.itemCount, 0)
+
+            let unreadable = TrashMonitor(scanTrash: {
+                .init(items: [], error: "fixture denied")
+            }, notificationsEnabled: false)
+            let unreadableSucceeded = await unreadable.emptyTrash()
+            XCTAssertFalse(unreadableSucceeded, "读取失败不得显示成功对号")
+            XCTAssertNotNil(unreadable.actionMessage)
+            XCTAssertFalse(unreadable.isCleaning)
+
+            var scans = 0
+            let changed = TrashMonitor(scanTrash: {
+                scans += 1
+                return Self.outcome(scans == 1 ? 0 : 10)
+            }, notificationsEnabled: false)
+            let changedSucceeded = await changed.emptyTrash()
+            XCTAssertFalse(changedSucceeded, "清理后仍有项目时不得显示已清空")
+        }
+    }
+
     func testForcedRefreshBypassesRecentPopupSnapshot() {
         runOnMain {
             var bytes: Int64 = 10

@@ -37,7 +37,7 @@ suite.addTest(TrashMonitorTests.defaultTestSuite)
 suite.addTest(DevelopmentStorageTests.defaultTestSuite)
 suite.addTest(AppActionCoordinatorTests.defaultTestSuite)
 suite.run()
-guard let result = suite.testRun, result.executionCount == 186, result.totalFailureCount == 0 else { exit(1) }
+guard let result = suite.testRun, result.executionCount == 187, result.totalFailureCount == 0 else { exit(1) }
 SWIFT
 
 xcrun --sdk macosx swiftc -sdk "$P0_SDK_PATH" -I "$P0_TEST_DIR" -I "$P0_LIBRARY_DIR" -L "$P0_TEST_DIR" -L "$P0_LIBRARY_DIR" -lcleanMac \

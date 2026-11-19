@@ -10,9 +10,15 @@ struct MemoryMaintenanceButton: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 if service.running && !compact { ProgressView().controlSize(.small) }
-                Button(service.running ? (compact ? "整理中…" : "正在整理…") : "整理内存") {
-                    service.run()
-                }.buttonStyle(ReadableControlButtonStyle()).controlSize(.small).disabled(service.running)
+                Button { service.run() } label: {
+                    if compact {
+                        PopupOperationLabel(title: "整理内存", runningTitle: "整理中…", symbol: "sparkles",
+                                            running: service.running)
+                    } else {
+                        Text(service.running ? "正在整理…" : "整理内存")
+                    }
+                }.buttonStyle(ReadableControlButtonStyle(tint: .purple, compact: compact, inProgress: compact && service.running))
+                    .disabled(service.running)
                     .help("整理系统可回收缓存；首次需要批准辅助服务，之后无需逐次授权。")
                 if compact, let message = service.message {
                     Button { showingResult.toggle() } label: {
@@ -40,5 +46,39 @@ struct MemoryMaintenanceButton: View {
             }
         }.onAppear { helper.refreshStatus() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in helper.refreshStatus() }
+    }
+}
+
+/// 状态栏操作共用内容尺寸、状态动画和按钮内进度，避免加载时移动卡片标题。
+struct PopupOperationLabel: View {
+    let title: String
+    let runningTitle: String
+    let symbol: String
+    var running = false
+    var succeeded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if running {
+                ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+                    .transition(.opacity)
+            } else {
+                Image(systemName: succeeded ? "checkmark" : symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12, height: 12)
+                    .id(succeeded)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.65).combined(with: .opacity))
+            }
+            if !succeeded {
+                Text(running ? runningTitle : title)
+                    .transition(.opacity)
+            }
+        }
+        .fixedSize()
+        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78), value: running)
+        .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.72), value: succeeded)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(succeeded ? "已完成" : running ? runningTitle : title)
     }
 }

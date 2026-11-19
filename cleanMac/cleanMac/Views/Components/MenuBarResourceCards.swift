@@ -54,7 +54,7 @@ struct MenuBarResourceCards: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).help("打开" + title + "详情")
             Rectangle().fill(Theme.hairline).frame(height: 1)
-            footer().frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
+            footer().frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .leading)
         }.popupCard()
     }
 }

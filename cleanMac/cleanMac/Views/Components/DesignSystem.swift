@@ -1037,6 +1037,8 @@ struct ReadableControlButtonStyle: ButtonStyle {
     var selected = false
     var iconOnly = false
     var tint: Color = .indigo
+    var compact = false
+    var inProgress = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1050,11 +1052,11 @@ struct ReadableControlButtonStyle: ButtonStyle {
         let ink = Color(nsColor: base.blended(withFraction: scheme == .dark ? 0.35 : 0.42,
                                              of: scheme == .dark ? .white : .black) ?? base)
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: compact ? 11 : 13, weight: .medium))
             .lineLimit(1)
             .foregroundStyle(emphasized ? Color.white : ink)
-            .padding(.horizontal, iconOnly ? 0 : 12)
-            .frame(width: iconOnly ? Theme.controlHeight : nil, height: Theme.controlHeight)
+            .padding(.horizontal, iconOnly ? 0 : compact ? 9 : 12)
+            .frame(width: iconOnly ? (compact ? 28 : Theme.controlHeight) : nil, height: compact ? 28 : Theme.controlHeight)
             .background {
                 RoundedRectangle(cornerRadius: 10).fill(emphasized ? accent : Theme.surfaceRaised)
                 if !emphasized {
@@ -1063,8 +1065,8 @@ struct ReadableControlButtonStyle: ButtonStyle {
             }
             .overlay(RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(emphasized ? accent : ink.opacity(0.55), lineWidth: 1))
-            .opacity(enabled ? 1 : 0.45)
-            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? 0.98 : 1)
+            .opacity(enabled || inProgress ? 1 : 0.45)
+            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? (compact ? 0.94 : 0.98) : 1)
             .onHover { hovered = $0 }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovered)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
