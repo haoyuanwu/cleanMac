@@ -1,8 +1,35 @@
 import XCTest
+import AppKit
 import Security
 @testable import cleanMac
 
 final class AppActionCoordinatorTests: XCTestCase {
+    func testWindowlessLaunchRetainsRequestUntilOpenerIsRegistered() async {
+        await MainActor.run {
+            _ = NSApplication.shared
+            let coordinator = AppActionCoordinator()
+            var openCount = 0
+            coordinator.requestMainWindow()
+            coordinator.registerWindowOpener { openCount += 1 }
+            XCTAssertEqual(openCount, 1)
+            XCTAssertFalse(coordinator.consumeMainWindowRequest())
+            coordinator.registerWindowOpener { openCount += 1 }
+            XCTAssertEqual(openCount, 1)
+        }
+    }
+
+    func testDockReopenWithoutMainWindowInvokesRegisteredOpener() async {
+        await MainActor.run {
+            _ = NSApplication.shared
+            let coordinator = AppActionCoordinator()
+            var openCount = 0
+            coordinator.registerWindowOpener { openCount += 1 }
+            coordinator.requestMainWindow()
+            XCTAssertEqual(openCount, 1)
+            XCTAssertFalse(coordinator.consumeMainWindowRequest())
+        }
+    }
+
     func testDetailRequestsAreRetainedUntilConsumedAndDeliveredOnlyOnce() async {
         await MainActor.run {
             let coordinator = AppActionCoordinator.shared

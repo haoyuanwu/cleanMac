@@ -6,8 +6,8 @@ enum WorkspaceGroup: String, CaseIterable, Identifiable {
     case files = "文件整理"
     case applications = "应用与开发"
     case storage = "磁盘分析"
-    case preferences = "偏好与保护"
     case device = "设备信息"
+    case preferences = "偏好与保护"
 
     var id: String { rawValue }
     var symbol: String {
@@ -51,7 +51,7 @@ enum WorkspaceGroup: String, CaseIterable, Identifiable {
         case .files: return [.category(.downloads), .category(.largeFiles), .category(.installers), .page(.duplicates)]
         case .applications: return [.category(.applications), .page(.xcode), .page(.packages), .page(.aiToolchain), .page(.containers), .page(.projectArtifacts), .page(.startup), .page(.extensions)]
         case .storage: return [.page(.diskMap), .page(.timeline)]
-        case .preferences: return [.page(.whitelist), .page(.settings), .page(.privacy)]
+        case .preferences: return [.page(.settings), .page(.whitelist), .page(.privacy)]
         }
     }
 }

@@ -28,6 +28,7 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
         ScheduledScanService.shared.start()
         NetworkSpeedStatusItem.shared.start()
         ResourceAlertPresenter.shared.start()
+        AppActionCoordinator.shared.requestMainWindow()
         finishedLaunching = true
         startupWindowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
@@ -59,14 +60,26 @@ private final class CleanMacAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// 捕获主场景的 openWindow 动作，供原生状态栏在主窗口关闭后重新打开。
-private struct MainWindowRequestRouter: View {
+/// 应用级命令在没有主窗口的登录启动中也会建立，不能依赖主页面 onAppear。
+private struct MainWindowCommands: Commands {
     @Environment(\.openWindow) private var openWindow
-    var body: some View {
-        Color.clear.frame(width: 0, height: 0)
-            .onAppear {
-                AppActionCoordinator.shared.registerWindowOpener { openWindow(id: "main") }
+
+    var body: some Commands {
+        // 延迟到当前场景更新结束，再注册并处理启动期间暂存的窗口请求。
+        let _ = registerWindowOpener()
+        CommandGroup(after: .newItem) {
+            Button("清理扫描") {
+                NotificationCenter.default.post(name: .init("scanAll"), object: nil)
             }
+            .keyboardShortcut("s", modifiers: .command)
+        }
+    }
+
+    private func registerWindowOpener() {
+        let opener = openWindow
+        DispatchQueue.main.async {
+            AppActionCoordinator.shared.registerWindowOpener { opener(id: "main") }
+        }
     }
 }
 
@@ -92,7 +105,6 @@ struct cleanMacApp: App {
         Window("cleanMac", id: "main") {
             ContentView()
                 .background(MainWindowTracker())
-                .background(MainWindowRequestRouter())
         }
         .windowToolbarStyle(.unifiedCompact)
         .windowStyle(.hiddenTitleBar)
@@ -102,12 +114,7 @@ struct cleanMacApp: App {
             #if DEBUG
             StatusPopupPreviewCommands()
             #endif
-            CommandGroup(after: .newItem) {
-                Button("清理扫描") {
-                    NotificationCenter.default.post(name: .init("scanAll"), object: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-            }
+            MainWindowCommands()
         }
         #if DEBUG
         Window("状态栏布局预览", id: "status-popup-preview") {

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 自愿打赏页面，首次完整扫描提示与设置入口共用。
+/// 自愿打赏页面，首次完整扫描提示与侧边栏入口共用。
 struct DonationView: View {
     let onClose: () -> Void
 

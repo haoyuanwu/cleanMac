@@ -9,6 +9,7 @@ struct SidebarView: View {
     let selectedGroup: WorkspaceGroup
     let onSelect: (WorkspaceGroup) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showingDonation = false
     @FocusState private var focusedGroup: WorkspaceGroup?
 
     enum SidebarTab: String, CaseIterable, Hashable, Identifiable {
@@ -57,11 +58,31 @@ struct SidebarView: View {
             }
             .frame(width: 80)
             Spacer(minLength: 0)
+            Button { showingDonation = true } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "cup.and.saucer.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(Theme.accentGradient)
+                        .frame(width: 48, height: 48)
+                    Text("开发支持")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 56)
+                .contentShape(RoundedRectangle(cornerRadius: 15))
+            }
+            .buttonStyle(WorkspacePressStyle())
+            .help("开发支持 · 请我喝杯咖啡")
+            .accessibilityLabel("开发支持")
             Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"))
                 .font(.system(size: 9, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
                 .padding(.bottom, 16)
         }
         .frame(width: 80)
+        .sheet(isPresented: $showingDonation) {
+            DonationView(onClose: { showingDonation = false })
+                .frame(width: 600)
+        }
         .backgroundPreferenceValue(SidebarButtonBoundsKey.self) { bounds in
             GeometryReader { geometry in
                 if let anchor = bounds[selectedGroup] {

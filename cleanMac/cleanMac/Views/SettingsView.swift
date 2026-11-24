@@ -9,7 +9,6 @@ struct SettingsView: View {
     @AppStorage("com.cleanMac.resourceCPUThreshold") private var resourceCPUThreshold = 400.0
     @AppStorage("com.cleanMac.resourceMemoryPercent") private var resourceMemoryPercent = 35.0
     @State private var isHistoryExpanded = false
-    @State private var showingDonation = false
     @State private var showingCacheScanIgnores = false
     @State private var showingCleaningHistory = false
     @State private var showingCacheRules = false
@@ -33,11 +32,6 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 pageHeader
-
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("开发支持", subtitle: "如果 cleanMac 帮到了你，欢迎请我喝杯咖啡。")
-                    donationCard
-                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     sectionHeader("提醒与监测", subtitle: "按需调整空间提醒，设置会立即生效。")
@@ -178,10 +172,6 @@ struct SettingsView: View {
         .sheet(isPresented: $showingCacheRules) { CacheRulesView() }
         .sheet(isPresented: $showingCleaningHistory) { CleaningHistoryView() }
         .sheet(isPresented: $showingCacheScanIgnores) { CacheScanIgnoresView() }
-        .sheet(isPresented: $showingDonation) {
-            DonationView(onClose: { showingDonation = false })
-                .frame(width: 600)
-        }
     }
 
     private var settingsColumns: [GridItem] {
@@ -443,28 +433,6 @@ struct SettingsView: View {
                     Label("打开日志文件", systemImage: "arrow.up.right")
                 }
                 .buttonStyle(ReadableControlButtonStyle())
-            }
-        }
-    }
-
-    private var donationCard: some View {
-        settingsCard {
-            HStack(spacing: 16) {
-                Image(systemName: "cup.and.saucer.fill")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(Theme.accentGradient)
-                    .frame(width: 48, height: 48)
-                    .background(Theme.accentGradientSoft, in: RoundedRectangle(cornerRadius: 14))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("请我喝杯咖啡")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("自愿支持后续维护与功能更新，清理功能不会受影响。")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-                Spacer(minLength: 8)
-                Button("查看打赏方式") { showingDonation = true }
-                    .buttonStyle(ReadableControlButtonStyle(prominent: true))
             }
         }
     }

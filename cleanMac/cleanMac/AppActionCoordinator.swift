@@ -25,7 +25,7 @@ final class AppActionCoordinator: ObservableObject {
     private var mainWindowCloseObserver: NSObjectProtocol?
     private var windowOpener: (() -> Void)?
 
-    private init() {}
+    init() {}
 
     var isMainWindowReadyForBackgroundScan: Bool {
         NSApp.isActive && mainWindow?.isVisible == true && mainWindow?.isKeyWindow == true

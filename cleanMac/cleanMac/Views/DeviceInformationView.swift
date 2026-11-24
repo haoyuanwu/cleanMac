@@ -59,6 +59,7 @@ struct DeviceInformationView: View {
             }
             MemoryPressurePanel()
         case .connections:
+            NetworkDiagnosticPanel()
             dashboardBand {
                 NetworkSpeedCard(embedded: true,
                     downloadedTotal: viewModel.snapshot.map { value(for: "累计下载", in: $0.network) },
@@ -68,7 +69,6 @@ struct DeviceInformationView: View {
                 dashboardBand { wifiCard(snapshot) }
                 dashboardBand { bluetoothCard(snapshot) }
             } else { loadingState }
-            NetworkDiagnosticPanel()
         case .system:
             if let snapshot = viewModel.snapshot {
                 overviewCard(snapshot)

@@ -176,21 +176,10 @@ struct StorageActivityPanel: View {
 
 struct SystemExtrasPanel: View {
     let snapshot: DeviceInfoSnapshot
-    @State private var query = ""
     @State private var message: String?
     @State private var displays: [DisplayDeviceInfo] = []
     var body: some View {
         VStack(spacing: 24) {
-            TelemetryPanel("搜索设备字段") {
-                ExpandableSearchField(placeholder: "搜索芯片、版本、序列号等", text: $query)
-                if !query.isEmpty {
-                    let matches = (snapshot.device + snapshot.software).filter { $0.label.localizedCaseInsensitiveContains(query) || $0.value.localizedCaseInsensitiveContains(query) }
-                    if matches.isEmpty { Text("没有匹配的设备字段").font(.caption).foregroundStyle(.secondary) }
-                    ForEach(Array(matches.enumerated()), id: \.offset) { _, field in
-                        HStack { Text(field.label).foregroundStyle(.secondary); Spacer(); Text(field.value).textSelection(.enabled) }.font(.system(size: 12))
-                    }
-                }
-            }
             TelemetryPanel("显示器") {
                 if displays.isEmpty { Text("未读取到显示器信息").font(.caption).foregroundStyle(.secondary) }
                 ForEach(displays) { display in
